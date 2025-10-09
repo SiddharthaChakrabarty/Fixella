@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>IT Tickets Knowledge Graph — Grid + Graph Stats</title>
+
+    <!-- vis-network -->
+    <script src="https://unpkg.com/vis-network@9.1.2/standalone/umd/vis-network.min.js"></script>
+
+    <style>
+        :root {
+            --right-width: 360px;
+            --controls-height: 56px;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: Inter, Arial, sans-serif;
+        }
+
+        .app {
+            display: flex;
+            height: 100vh;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        /* left area = network */
+        #left {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        #network {
+            height: calc(100vh - var(--controls-height));
+            width: 100%;
+            background: #fff;
+        }
+
+        #controls {
+            height: var(--controls-height);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            background: #fbfbfd;
+            border-top: 1px solid #eee;
+        }
+
+        /* right panel */
+        #right {
+            width: var(--right-width);
+            min-width: 220px;
+            max-width: 60%;
+            overflow: auto;
+            background: #fafbfd;
+            padding: 12px;
+            border-left: 1px solid #eee;
+        }
+
+        .panel {
+            background: #fff;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 4px rgba(20, 30, 60, 0.04);
+        }
+
+        h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .small {
+            font-size: 13px;
+            color: #333;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 6px;
+            text-align: left;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f2f6;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #eef2ff;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+
+        .muted {
+            color: #666;
+            font-size: 13px;
+        }
+
+        .ticket-link {
+            color: #0b66c3;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .stat-grid {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            background: #f6f9ff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .mono {
+            font-family: Menlo, Monaco, monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <div id="left">
+            <div id="network"></div>
+            <div id="controls">
+                <div><strong>IT Tickets Graph</strong> <span id="lastUpdated" class="muted">(loaded once)</span></div>
+                <div class="muted">Physics: <strong>disabled</strong></div>
+            </div>
+        </div>
+
+        <div id="right">
+            <div class="panel">
+                <h3>Graph stats</h3>
+                <div id="graphStats" class="small">
+                    <div class="stat-grid">
+                        <div class="stat-item">Nodes: <span id="statNodes" class="mono">—</span></div>
+                        <div class="stat-item">Edges: <span id="statEdges" class="mono">—</span></div>
+                        <div class="stat-item">Tickets: <span id="statTickets" class="mono">—</span></div>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <div><strong>By node type</strong></div>
+                        <div id="nodeTypeCounts" class="small" style="margin-top:6px;">—</div>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <div><strong>By edge relation</strong></div>
+                        <div id="edgeTypeCounts" class="small" style="margin-top:6px;">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Summary</h3>
+                <div id="summaryContent" class="small">Loading...</div>
+            </div>
+
+            <div class="panel">
+                <h3>Top Technicians</h3>
+                <div id="topTechs" class="small">—</div>
+            </div>
+
+            <div class="panel">
+                <h3>Tickets by Site</h3>
+                <div id="bySite" class="small">—</div>
+            </div>
+
+            <div class="panel">
+                <h3>Priority Breakdown</h3>
+                <div id="priorityBreakdown" class="small">—</div>
+            </div>
+
+            <div class="panel">
+                <h3>Recent Tickets</h3>
+                <div id="recentTickets" class="small">—</div>
+            </div>
+
+            <div class="panel">
+                <h3>Clicked Node Details</h3>
+                <div id="nodeDetails" class="small">Click a node to inspect it.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ======== vis-network setup (physics disabled) ========
+        const container = document.getElementById('network');
+        const nodes = new vis.DataSet([]);
+        const edges = new vis.DataSet([]);
+
+        const options = {
+            autoResize: true,
+            nodes: {
+                shape: 'ellipse',
+                size: 16,
+                font: { size: 14, face: 'Segoe UI, Arial' },
+                borderWidth: 1
+            },
+            edges: {
+                arrows: { to: { enabled: true, scaleFactor: 0.45 } },
+                smooth: { enabled: true, type: 'curvedCW', roundness: 0.12 },
+                width: 1,
+                color: { inherit: 'from' }
+            },
+            interaction: {
+                zoomView: true, dragView: true, dragNodes: true, hover: true, navigationButtons: true
+            },
+            physics: { enabled: false },
+            layout: { hierarchical: { enabled: false } },
+            manipulation: false
+        };
+
+        const network = new vis.Network(container, { nodes, edges }, options);
+        window.addEventListener('resize', () => network.redraw());
+
+        // ======== Click handling ========
+        network.on("click", function (params) {
+            if (params.nodes && params.nodes.length) {
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+                showNodeDetails(node);
+                network.focus(nodeId, { scale: 1.2, animation: { duration: 300 } });
+            } else {
+                document.getElementById('nodeDetails').innerHTML = 'Click a node to inspect it.';
+            }
+        });
+
+        function showNodeDetails(n) {
+            let html = `<div><strong>${n.label || n.id}</strong>`;
+            if (n.type) html += ` <span class="badge">${n.type}</span>`;
+            html += `</div>`;
+            if (n.type === 'Ticket') {
+                html += `<div class="muted">Status: ${n.status || '—'}</div>`;
+                if (n.priority) html += `<div class="muted">Priority: ${n.priority}</div>`;
+                if (n.resolution_steps && n.resolution_steps.length) html += `<div class="muted">Resolution steps: ${n.resolution_steps.length}</div>`;
+                if (n.title) html += `<div style="margin-top:8px;"><pre class="small">${escapeHtml(n.title).slice(0, 800)}</pre></div>`;
+            } else {
+                html += `<pre class="small">${escapeHtml(JSON.stringify(n, null, 2))}</pre>`;
+            }
+            document.getElementById('nodeDetails').innerHTML = html;
+        }
+
+        // ======== Fetch once (no polling) ========
+        async function fetchTicketsOnce() {
+            try {
+                const resp = await fetch('/tickets', { cache: 'no-store' });
+                if (!resp.ok) throw new Error('fetch failed');
+                const tickets = await resp.json();
+                return tickets;
+            } catch (err) {
+                console.error('Failed to fetch tickets:', err);
+                return [];
+            }
+        }
+
+        // ======== Build graph & grid layout ========
+        function buildGraphFromTickets(tickets) {
+            const nodeList = [];
+            const edgeList = [];
+            const seen = { tickets: new Set(), requesters: new Set(), technicians: new Set(), clients: new Set(), sites: new Set(), tech_groups: new Set() };
+
+            tickets.forEach((t, idx) => {
+                // Make absolutely unique ticket IDs
+                const tId = `ticket:${String(t.ticketId)}_${idx}`;
+                if (!seen.tickets.has(tId)) {
+                    nodeList.push({
+                        id: tId,
+                        label: t.subject || t.ticketId,
+                        title: t.description || '',
+                        type: 'Ticket',
+                        status: t.status || '',
+                        priority: t.priority || '',
+                        resolution_steps: t.resolutionSteps || []
+                    });
+                    seen.tickets.add(tId);
+                }
+
+                const req = t.requester || {};
+                const reqId = req.userId ? `requester:${req.userId}` : null;
+                if (reqId && !seen.requesters.has(reqId)) { nodeList.push({ id: reqId, label: req.name || req.userId, type: 'Requester' }); seen.requesters.add(reqId); }
+                if (reqId) edgeList.push({ from: tId, to: reqId, label: 'REQUESTED_BY' });
+
+                const tech = t.technician || {};
+                const techId = tech.userId ? `technician:${tech.userId}` : null;
+                if (techId && !seen.technicians.has(techId)) { nodeList.push({ id: techId, label: tech.name || tech.userId, type: 'Technician' }); seen.technicians.add(techId); }
+                if (techId) edgeList.push({ from: tId, to: techId, label: 'ASSIGNED_TO' });
+
+                const client = t.client || {};
+                const clientId = client.accountId ? `client:${client.accountId}` : null;
+                if (clientId && !seen.clients.has(clientId)) { nodeList.push({ id: clientId, label: client.name || client.accountId, type: 'Client' }); seen.clients.add(clientId); }
+                if (clientId) edgeList.push({ from: tId, to: clientId, label: 'FOR_CLIENT' });
+
+                const site = t.site || {};
+                const siteId = site.id ? `site:${site.id}` : null;
+                if (siteId && !seen.sites.has(siteId)) { nodeList.push({ id: siteId, label: site.name || site.id, type: 'Site' }); seen.sites.add(siteId); }
+                if (siteId) edgeList.push({ from: tId, to: siteId, label: 'AT_SITE' });
+
+                if (t.techGroup) {
+                    const g = t.techGroup;
+                    const gId = g.groupId ? `techgroup:${g.groupId}` : null;
+                    if (gId && !seen.tech_groups.has(gId)) { nodeList.push({ id: gId, label: g.name || g.groupId, type: 'TechGroup' }); seen.tech_groups.add(gId); }
+                    if (gId) edgeList.push({ from: tId, to: gId, label: 'HANDLED_BY_GROUP' });
+                }
+            });
+
+            // compute degree
+            const degree = {};
+            edgeList.forEach(e => {
+                degree[e.from] = (degree[e.from] || 0) + 1;
+                degree[e.to] = (degree[e.to] || 0) + 1;
+            });
+
+            const typeColor = { 'Ticket': '#ffb86b', 'Requester': '#8ecae6', 'Technician': '#90be6d', 'Client': '#a0c4ff', 'Site': '#cdd9e8', 'TechGroup': '#ffd6a5' };
+
+            nodeList.forEach(n => {
+                const d = degree[n.id] || 0;
+                const size = 14 + Math.min(18, Math.sqrt(d) * 3);
+                n.size = size;
+                n.color = { background: typeColor[n.type] || '#ddd', border: '#555' };
+                n.font = { size: Math.max(12, Math.min(16, Math.round(size / 1.2))) };
+                if (n.label && n.label.length > 40) n.label = n.label.slice(0, 36) + '…';
+            });
+
+            edgeList.forEach(e => { e.width = 1; e.arrows = 'to'; });
+
+            computeGridPositions(nodeList);
+
+            return { nodeList, edgeList };
+        }
+
+        function computeGridPositions(nodeList) {
+            const total = nodeList.length;
+            if (total === 0) return;
+            const cols = Math.ceil(Math.sqrt(total));
+            const rows = Math.ceil(total / cols);
+            const spacing = Math.max(80, Math.min(200, Math.round(1800 / Math.sqrt(Math.max(1, total)))));
+            const startX = -((cols - 1) * spacing) / 2;
+            const startY = -((rows - 1) * spacing) / 2;
+
+            nodeList.forEach((n, idx) => {
+                const col = idx % cols;
+                const row = Math.floor(idx / cols);
+                n.x = startX + col * spacing;
+                n.y = startY + row * spacing;
+            });
+        }
+
+        // ======== Render & metrics ========
+        function updateNetwork(nodeList, edgeList) {
+            nodes.clear(); edges.clear();
+            if (nodeList.length) nodes.add(nodeList);
+            if (edgeList.length) edges.add(edgeList);
+            network.fit({ animation: { duration: 400 }, offset: { x: 40, y: 40 } });
+            network.redraw();
+        }
+
+        function renderGraphStats() {
+            const allNodes = nodes.get();
+            const allEdges = edges.get();
+            const nodeCount = allNodes.length;
+            const edgeCount = allEdges.length;
+
+            const nodeTypeCounts = {};
+            allNodes.forEach(n => { const t = n.type || 'Unknown'; nodeTypeCounts[t] = (nodeTypeCounts[t] || 0) + 1; });
+            const edgeTypeCounts = {};
+            allEdges.forEach(e => { const l = e.label || e.relation || 'edge'; edgeTypeCounts[l] = (edgeTypeCounts[l] || 0) + 1; });
+
+            document.getElementById('statNodes').textContent = nodeCount;
+            document.getElementById('statEdges').textContent = edgeCount;
+            document.getElementById('statTickets').textContent = (nodeTypeCounts['Ticket'] || 0);
+
+            const nodeTypeHtml = Object.entries(nodeTypeCounts).sort((a, b) => b[1] - a[1])
+                .map(([k, v]) => `<div>${escapeHtml(k)}: <strong>${v}</strong></div>`).join('');
+            document.getElementById('nodeTypeCounts').innerHTML = nodeTypeHtml || '—';
+
+            const edgeTypeHtml = Object.entries(edgeTypeCounts).sort((a, b) => b[1] - a[1])
+                .map(([k, v]) => `<div>${escapeHtml(k)}: <strong>${v}</strong></div>`).join('');
+            document.getElementById('edgeTypeCounts').innerHTML = edgeTypeHtml || '—';
+        }
+
+        function computeAndRenderMetrics(tickets) {
+            const totalTickets = tickets.length;
+            const statusCounts = {};
+            const priorityCounts = {};
+            const techCounts = {};
+            const siteCounts = {};
+            const recentTickets = [];
+            let closedCount = 0, resolvedCount = 0;
+            let sumResolutionMs = 0, resolutionCount = 0;
+
+            tickets.forEach(t => {
+                const s = (t.status || 'Unknown').toLowerCase();
+                statusCounts[s] = (statusCounts[s] || 0) + 1;
+                if (s.includes('closed')) closedCount++;
+                if (s.includes('resolved')) resolvedCount++;
+
+                const p = t.priority || 'Unspecified';
+                priorityCounts[p] = (priorityCounts[p] || 0) + 1;
+                const techName = (t.technician && t.technician.name) ? t.technician.name : 'Unassigned';
+                techCounts[techName] = (techCounts[techName] || 0) + 1;
+                const siteName = (t.site && t.site.name) ? t.site.name : 'Unknown site';
+                siteCounts[siteName] = (siteCounts[siteName] || 0) + 1;
+                recentTickets.push({ id: t.ticketId, subject: t.subject || '', status: t.status || '', createdAt: t.createdAt || null });
+
+                if (t.createdAt && t.resolvedAt) {
+                    const c = Date.parse(t.createdAt), r = Date.parse(t.resolvedAt);
+                    if (!isNaN(c) && !isNaN(r) && r >= c) {
+                        sumResolutionMs += (r - c);
+                        resolutionCount += 1;
+                    }
+                }
+            });
+
+            const avgResStr = resolutionCount > 0 ? msToHuman(sumResolutionMs / resolutionCount) : 'N/A';
+            const summaryHtml =
+                `<div>Total tickets: <strong>${totalTickets}</strong></div>
+             <div>Closed tickets: <strong>${closedCount}</strong></div>
+             <div>Resolved tickets: <strong>${resolvedCount}</strong></div>
+             <div>Avg resolution: <strong>${avgResStr}</strong> (${resolutionCount} used)</div>`;
+            document.getElementById('summaryContent').innerHTML = summaryHtml;
+
+            const techArr = Object.entries(techCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+            document.getElementById('topTechs').innerHTML = techArr.map(t => `<div>${escapeHtml(t[0])} <span class="badge">${t[1]}</span></div>`).join('') || '—';
+
+            const siteArr = Object.entries(siteCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+            document.getElementById('bySite').innerHTML = siteArr.map(s => `<div>${escapeHtml(s[0])} <span class="badge">${s[1]}</span></div>`).join('') || '—';
+
+            const prioArr = Object.entries(priorityCounts).sort((a, b) => b[1] - a[1]);
+            document.getElementById('priorityBreakdown').innerHTML = prioArr.map(p => `<div>${escapeHtml(p[0])} <span class="badge">${p[1]}</span></div>`).join('') || '—';
+
+            const rec = recentTickets.slice(0, 6);
+            if (rec.length) {
+                const rows = rec.map(r => `<tr><td class="ticket-link" data-id="${r.id}">${r.id}</td><td>${escapeHtml(r.subject)}</td><td>${escapeHtml(r.status)}</td></tr>`).join('');
+                document.getElementById('recentTickets').innerHTML = `<table><thead><tr><th>ID</th><th>Subject</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
+                document.querySelectorAll('.ticket-link').forEach(el => {
+                    el.addEventListener('click', () => {
+                        const id = `ticket:${el.getAttribute('data-id')}_0`;
+                        const node = nodes.get(id);
+                        if (node) {
+                            showNodeDetails(node);
+                            network.selectNodes([id]);
+                            network.focus(id, { scale: 1.2, animation: { duration: 300 } });
+                        }
+                    });
+                });
+            } else {
+                document.getElementById('recentTickets').innerHTML = '—';
+            }
+
+            renderGraphStats();
+        }
+
+        function msToHuman(ms) {
+            const sec = Math.round(ms / 1000);
+            const days = Math.floor(sec / (3600 * 24));
+            const hours = Math.floor((sec % (3600 * 24)) / 3600);
+            const minutes = Math.floor((sec % 3600) / 60);
+            const parts = [];
+            if (days) parts.push(days + 'd');
+            if (hours) parts.push(hours + 'h');
+            if (minutes) parts.push(minutes + 'm');
+            if (parts.length === 0) return '<1m';
+            return parts.join(' ');
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return ('' + str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+        }
+
+        // ======== Load once and render ========
+        (async function init() {
+            const tickets = await fetchTicketsOnce();
+            const { nodeList, edgeList } = buildGraphFromTickets(tickets);
+            updateNetwork(nodeList, edgeList);
+            computeAndRenderMetrics(tickets);
+            document.getElementById('lastUpdated').textContent = '(loaded once at ' + (new Date()).toLocaleString() + ')';
+        })();
+    </script>
+
+</body>
+
+</html>
