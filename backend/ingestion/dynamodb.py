@@ -1,4 +1,4 @@
-import boto3
+import boto3  # type: ignore
 from datetime import datetime
 
 dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
@@ -15,7 +15,10 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Dwight Schrute"},
-        "technician": {"userId": "7076251b-17da-4881-9cfb-98c35af12df0", "name": "Sneha Jain"},
+        "technician": {
+            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "name": "Sneha Jain",
+        },
         "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
         "status": "Open",
         "priority": "High",
@@ -23,7 +26,7 @@ tickets = [
         "urgency": "High",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     {
         "ticketId": "1002",
@@ -35,15 +38,18 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Dwight Schrute"},
-        "technician": {"userId": "83352153327464448", "name": "Siddhartha Chakrabarty"},
-        "technician_userId": "83352153327464448",
+        "technician": {
+            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "name": "Siddhartha Chakrabarty",
+        },
+        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
         "status": "Open",
         "priority": "Critical",
         "impact": "High",
         "urgency": "Medium",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     {
         "ticketId": "1003",
@@ -55,7 +61,10 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Dwight Schrute"},
-        "technician": {"userId": "7076251b-17da-4881-9cfb-98c35af12df0", "name": "Sneha Jain"},
+        "technician": {
+            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "name": "Sneha Jain",
+        },
         "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
         "status": "Open",
         "priority": "Medium",
@@ -63,7 +72,7 @@ tickets = [
         "urgency": "Medium",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     # More tickets
     {
@@ -76,15 +85,18 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Jim Halpert"},
-        "technician": {"userId": "83352153327464448", "name": "Siddhartha Chakrabarty"},
-        "technician_userId": "83352153327464448",
+        "technician": {
+            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "name": "Siddhartha Chakrabarty",
+        },
+        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
         "status": "Open",
         "priority": "High",
         "impact": "Medium",
         "urgency": "High",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     {
         "ticketId": "1005",
@@ -96,7 +108,10 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Pam Beesly"},
-        "technician": {"userId": "7076251b-17da-4881-9cfb-98c35af12df0", "name": "Sneha Jain"},
+        "technician": {
+            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "name": "Sneha Jain",
+        },
         "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
         "status": "Open",
         "priority": "Critical",
@@ -104,7 +119,7 @@ tickets = [
         "urgency": "High",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     {
         "ticketId": "1006",
@@ -116,15 +131,18 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Stanley Hudson"},
-        "technician": {"userId": "83352153327464448", "name": "Siddhartha Chakrabarty"},
-        "technician_userId": "83352153327464448",
+        "technician": {
+            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "name": "Siddhartha Chakrabarty",
+        },
+        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
         "status": "Open",
         "priority": "Medium",
         "impact": "Medium",
         "urgency": "Medium",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     {
         "ticketId": "1007",
@@ -136,15 +154,18 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Kevin Malone"},
-        "technician": {"userId": "83352153327464448", "name": "Siddhartha Chakrabarty"},
-        "technician_userId": "83352153327464448",
+        "technician": {
+            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "name": "Siddhartha Chakrabarty",
+        },
+        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
         "status": "Open",
         "priority": "High",
         "impact": "Medium",
         "urgency": "High",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
+        "worklogTimespent": "0.00",
     },
     {
         "ticketId": "1008",
@@ -156,7 +177,10 @@ tickets = [
         "client": {"accountId": "6028532731226112000", "name": "Dunder Mifflin"},
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Angela Martin"},
-        "technician": {"userId": "7076251b-17da-4881-9cfb-98c35af12df0", "name": "Sneha Jain"},
+        "technician": {
+            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "name": "Sneha Jain",
+        },
         "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
         "status": "Open",
         "priority": "High",
@@ -164,8 +188,8 @@ tickets = [
         "urgency": "High",
         "createdTime": datetime.utcnow().isoformat(),
         "updatedTime": datetime.utcnow().isoformat(),
-        "worklogTimespent": "0.00"
-    }
+        "worklogTimespent": "0.00",
+    },
 ]
 
 for ticket in tickets:

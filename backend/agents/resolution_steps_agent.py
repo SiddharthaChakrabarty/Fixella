@@ -13,20 +13,22 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
 
-import boto3
-from requests_aws4auth import AWS4Auth
-from opensearchpy import OpenSearch, RequestsHttpConnection
+import boto3  # type: ignore
+from requests_aws4auth import AWS4Auth  # type: ignore
+from opensearchpy import OpenSearch, RequestsHttpConnection  # type: ignore
 
-from strands import Agent, tool
-from strands.models import BedrockModel
+from strands import Agent, tool  # type: ignore
+from strands.models import BedrockModel  # type: ignore
 
 OPENSEARCH_HOST = os.environ.get(
     "OPENSEARCH_HOST",
-    "arn:aws:aoss:us-east-1:058264280347:collection/e67mqwgyf9a2476feaui"
+    "arn:aws:aoss:us-east-1:058264280347:collection/e67mqwgyf9a2476feaui",
 )
 OPENSEARCH_PORT = int(os.environ.get("OPENSEARCH_PORT", 443))
-OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "bedrock-knowledge-base-default-index")
-AWS_REGION = "us-east-1" 
+OPENSEARCH_INDEX = os.environ.get(
+    "OPENSEARCH_INDEX", "bedrock-knowledge-base-default-index"
+)
+AWS_REGION = "us-east-1"
 OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", None)
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
 OPENSEARCH_SERVERLESS_ENV = os.environ.get("OPENSEARCH_SERVERLESS", "").strip().lower()
@@ -37,7 +39,9 @@ def is_arn(value: str) -> bool:
     return isinstance(value, str) and value.startswith("arn:")
 
 
-def resolve_serverless_collection_endpoint_from_arn(collection_arn: str, region_hint: Optional[str] = None) -> Tuple[str, str]:
+def resolve_serverless_collection_endpoint_from_arn(
+    collection_arn: str, region_hint: Optional[str] = None
+) -> Tuple[str, str]:
     """
     Given a collection ARN like:
       arn:aws:aoss:ap-south-1:058264280347:collection/r4qeef5zh6n0lngse3h9
@@ -52,7 +56,9 @@ def resolve_serverless_collection_endpoint_from_arn(collection_arn: str, region_
     resource = arn_parts[5]  # e.g., "collection/<id>"
     resource_parts = resource.split("/")
     if len(resource_parts) != 2 or resource_parts[0] != "collection":
-        raise RuntimeError(f"ARN does not appear to be a collection ARN: {collection_arn}")
+        raise RuntimeError(
+            f"ARN does not appear to be a collection ARN: {collection_arn}"
+        )
     collection_id = resource_parts[1]
 
     region = region_hint or arn_region
@@ -63,11 +69,15 @@ def resolve_serverless_collection_endpoint_from_arn(collection_arn: str, region_
     resp = client.batch_get_collection(ids=[collection_id])
     details = resp.get("collectionDetails", [])
     if not details:
-        raise RuntimeError(f"No collection details returned for id {collection_id}. Response: {resp}")
+        raise RuntimeError(
+            f"No collection details returned for id {collection_id}. Response: {resp}"
+        )
 
     endpoint = details[0].get("collectionEndpoint")
     if not endpoint:
-        raise RuntimeError(f"Collection returned but no collectionEndpoint found: {details[0]}")
+        raise RuntimeError(
+            f"Collection returned but no collectionEndpoint found: {details[0]}"
+        )
 
     # strip scheme if present
     parsed = urlparse(endpoint)
@@ -78,16 +88,18 @@ def resolve_serverless_collection_endpoint_from_arn(collection_arn: str, region_
     return host, region
 
 
-def resolve_opensearch_host_and_service(host_value: str,
-                                        env_region: Optional[str] = None,
-                                        env_service: Optional[str] = None) -> Tuple[str, str, str]:
+def resolve_opensearch_host_and_service(
+    host_value: str, env_region: Optional[str] = None, env_service: Optional[str] = None
+) -> Tuple[str, str, str]:
     """
     If host_value is an ARN -> resolve to collectionEndpoint and set service='aoss' and region from ARN (unless env_region provided).
     Otherwise treat host_value as a hostname (possibly with https://) and set service to env_service or default 'es'.
     Returns tuple (host, service, region)
     """
     if is_arn(host_value):
-        host, inferred_region = resolve_serverless_collection_endpoint_from_arn(host_value, region_hint=env_region)
+        host, inferred_region = resolve_serverless_collection_endpoint_from_arn(
+            host_value, region_hint=env_region
+        )
         service = "aoss"
         region = env_region or inferred_region
         return host, service, region
@@ -97,6 +109,7 @@ def resolve_opensearch_host_and_service(host_value: str,
         service = env_service or ("aoss" if ".aoss." in host.lower() else "es")
         region = env_region or AWS_REGION or boto3.Session().region_name
         return host, service, region
+
 
 resolved_host, resolved_service, resolved_region = resolve_opensearch_host_and_service(
     OPENSEARCH_HOST, env_region=AWS_REGION, env_service=OPENSEARCH_SERVICE
@@ -111,15 +124,23 @@ if OPENSEARCH_SERVERLESS_ENV in ("1", "true", "yes"):
 elif OPENSEARCH_SERVERLESS_ENV in ("0", "false", "no"):
     USE_OPENSEARCH_SERVERLESS = False
 else:
-    USE_OPENSEARCH_SERVERLESS = (OPENSEARCH_SERVICE == "aoss") or (".aoss." in (OPENSEARCH_HOST or "").lower()) or is_arn(os.environ.get("OPENSEARCH_HOST", ""))
+    USE_OPENSEARCH_SERVERLESS = (
+        (OPENSEARCH_SERVICE == "aoss")
+        or (".aoss." in (OPENSEARCH_HOST or "").lower())
+        or is_arn(os.environ.get("OPENSEARCH_HOST", ""))
+    )
 
-print(f"[info] using OpenSearch host: {OPENSEARCH_HOST}  (service={OPENSEARCH_SERVICE}, region={AWS_REGION}, serverless={USE_OPENSEARCH_SERVERLESS})")
+print(
+    f"[info] using OpenSearch host: {OPENSEARCH_HOST}  (service={OPENSEARCH_SERVICE}, region={AWS_REGION}, serverless={USE_OPENSEARCH_SERVERLESS})"
+)
 
 
-def create_opensearch_client(region: str = AWS_REGION,
-                             service: Optional[str] = OPENSEARCH_SERVICE,
-                             host: str = OPENSEARCH_HOST,
-                             port: int = OPENSEARCH_PORT) -> OpenSearch:
+def create_opensearch_client(
+    region: str = AWS_REGION,
+    service: Optional[str] = OPENSEARCH_SERVICE,
+    host: str = OPENSEARCH_HOST,
+    port: int = OPENSEARCH_PORT,
+) -> OpenSearch:
     """
     Create a SigV4-signed OpenSearch client using requests-aws4auth.
     Works for Amazon OpenSearch Service (service='es') and OpenSearch Serverless (service='aoss').
@@ -128,7 +149,9 @@ def create_opensearch_client(region: str = AWS_REGION,
     session = boto3.Session(region_name=region)
     credentials = session.get_credentials()
     if credentials is None:
-        raise RuntimeError("No AWS credentials found. Configure environment variables, profile, or IAM role.")
+        raise RuntimeError(
+            "No AWS credentials found. Configure environment variables, profile, or IAM role."
+        )
     frozen = credentials.get_frozen_credentials()
 
     # prefer explicit service parameter, otherwise derive from serverless flag
@@ -137,11 +160,13 @@ def create_opensearch_client(region: str = AWS_REGION,
     if USE_OPENSEARCH_SERVERLESS:
         service_name = "aoss"
 
-    awsauth = AWS4Auth(frozen.access_key,
-                       frozen.secret_key,
-                       region,
-                       service_name,
-                       session_token=frozen.token)
+    awsauth = AWS4Auth(
+        frozen.access_key,
+        frozen.secret_key,
+        region,
+        service_name,
+        session_token=frozen.token,
+    )
 
     client = OpenSearch(
         hosts=[{"host": host, "port": port}],
@@ -149,15 +174,19 @@ def create_opensearch_client(region: str = AWS_REGION,
         use_ssl=True,
         verify_certs=True,
         connection_class=RequestsHttpConnection,
-        timeout=30
+        timeout=30,
     )
     return client
 
+
 opensearch_client = create_opensearch_client()
 
-@tool(name="search_tickets",
-      description="Search the ticket knowledge base (OpenSearch) for similar tickets. "
-                  "Returns top matching tickets including their displayId, subject, and resolutionSteps.")
+
+@tool(
+    name="search_tickets",
+    description="Search the ticket knowledge base (OpenSearch) for similar tickets. "
+    "Returns top matching tickets including their displayId, subject, and resolutionSteps.",
+)
 def search_tickets(query_text: str, top_k: int = 3) -> Dict[str, Any]:
     """
     Query OpenSearch for tickets similar to query_text.
@@ -180,10 +209,19 @@ def search_tickets(query_text: str, top_k: int = 3) -> Dict[str, Any]:
                     "subject.ngram",  # if you indexed ngram fields
                 ],
                 "type": "best_fields",
-                "operator": "or"
+                "operator": "or",
             }
         },
-        "_source": ["ticketId", "displayId", "subject", "requester", "technician", "resolutionSteps", "status", "priority"]
+        "_source": [
+            "ticketId",
+            "displayId",
+            "subject",
+            "requester",
+            "technician",
+            "resolutionSteps",
+            "status",
+            "priority",
+        ],
     }
 
     resp = opensearch_client.search(body=body, index=OPENSEARCH_INDEX)
@@ -192,21 +230,26 @@ def search_tickets(query_text: str, top_k: int = 3) -> Dict[str, Any]:
     results = []
     for h in hits:
         src = h.get("_source", {})
-        results.append({
-            "score": h.get("_score"),
-            "ticketId": src.get("ticketId"),
-            "displayId": src.get("displayId"),
-            "subject": src.get("subject"),
-            "requester": src.get("requester"),
-            "technician": src.get("technician"),
-            "status": src.get("status"),
-            "priority": src.get("priority"),
-            "resolutionSteps": src.get("resolutionSteps", [])
-        })
+        results.append(
+            {
+                "score": h.get("_score"),
+                "ticketId": src.get("ticketId"),
+                "displayId": src.get("displayId"),
+                "subject": src.get("subject"),
+                "requester": src.get("requester"),
+                "technician": src.get("technician"),
+                "status": src.get("status"),
+                "priority": src.get("priority"),
+                "resolutionSteps": src.get("resolutionSteps", []),
+            }
+        )
 
     return {"results": results}
 
-def synthesize_steps_from_retrievals(retrievals: List[Dict[str, Any]], max_steps: int = 8) -> List[str]:
+
+def synthesize_steps_from_retrievals(
+    retrievals: List[Dict[str, Any]], max_steps: int = 8
+) -> List[str]:
     seen = {}
     order = []
     for r in retrievals:
@@ -221,10 +264,7 @@ def synthesize_steps_from_retrievals(retrievals: List[Dict[str, Any]], max_steps
 
 
 bedrock_model = BedrockModel(
-    model_id=BEDROCK_MODEL_ID,
-    temperature=0.0,
-    max_tokens=1024,
-    region_name=AWS_REGION
+    model_id=BEDROCK_MODEL_ID, temperature=0.0, max_tokens=1024, region_name=AWS_REGION
 )
 
 agent = Agent(
@@ -239,11 +279,16 @@ agent = Agent(
     ),
 )
 
-def suggest_resolution_for_ticket(new_ticket: Dict[str, Any], top_k: int = 3) -> Dict[str, Any]:
-    query_text = f"{new_ticket.get('subject','')}. " \
-                 f"Requester: {new_ticket.get('requester',{}).get('name','')}. " \
-                 f"Subcategory: {new_ticket.get('subcategory','')}. " \
-                 f"Priority: {new_ticket.get('priority','')}."
+
+def suggest_resolution_for_ticket(
+    new_ticket: Dict[str, Any], top_k: int = 3
+) -> Dict[str, Any]:
+    query_text = (
+        f"{new_ticket.get('subject','')}. "
+        f"Requester: {new_ticket.get('requester',{}).get('name','')}. "
+        f"Subcategory: {new_ticket.get('subcategory','')}. "
+        f"Priority: {new_ticket.get('priority','')}."
+    )
 
     instruction = (
         f"New ticket (JSON):\n{json.dumps(new_ticket, default=str)}\n\n"
@@ -271,18 +316,18 @@ def suggest_resolution_for_ticket(new_ticket: Dict[str, Any], top_k: int = 3) ->
         synthesized = synthesize_steps_from_retrievals(retrievals)
         recommended = []
         for s in synthesized:
-            supporting = [r["displayId"] for r in retrievals if s in (r.get("resolutionSteps") or [])]
-            recommended.append({
-                "step": s,
-                "supportingDisplayIds": supporting,
-                "notes": ""
-            })
-        parsed = {
-            "recommendedSteps": recommended,
-            "sources": retrievals
-        }
+            supporting = [
+                r["displayId"]
+                for r in retrievals
+                if s in (r.get("resolutionSteps") or [])
+            ]
+            recommended.append(
+                {"step": s, "supportingDisplayIds": supporting, "notes": ""}
+            )
+        parsed = {"recommendedSteps": recommended, "sources": retrievals}
 
     return parsed
+
 
 if __name__ == "__main__":
     new_ticket_example = {
@@ -291,7 +336,7 @@ if __name__ == "__main__":
         "requester": {"name": "Jim Halpert"},
         "subcategory": "Access",
         "priority": "High",
-        "description": "User reports that they cannot sign into company email on their laptop after password change."
+        "description": "User reports that they cannot sign into company email on their laptop after password change.",
     }
 
     suggestion = suggest_resolution_for_ticket(new_ticket_example, top_k=4)
