@@ -20,23 +20,15 @@ from opensearchpy import OpenSearch, RequestsHttpConnection
 from strands import Agent, tool
 from strands.models import BedrockModel
 
-# -----------------------
-# Configuration (edit / env)
-# -----------------------
-# You may put an OpenSearch Serverless collection ARN here (example you gave),
-# or the actual collection endpoint host (like "07tjusf2h91cunochc.us-east-1.aoss.amazonaws.com")
 OPENSEARCH_HOST = os.environ.get(
     "OPENSEARCH_HOST",
     "arn:aws:aoss:us-east-1:058264280347:collection/e67mqwgyf9a2476feaui"
 )
 OPENSEARCH_PORT = int(os.environ.get("OPENSEARCH_PORT", 443))
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "bedrock-knowledge-base-default-index")
-AWS_REGION = os.environ.get("AWS_REGION", None)  # may be inferred from ARN if not provided
-# For OpenSearch Serverless use "aoss", for managed domains use "es".
-# If you pass an ARN the code will set this to "aoss" automatically.
+AWS_REGION = "us-east-1" 
 OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", None)
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
-# Optional override to force serverless behavior (useful in CI): "1/true/yes" or "0/false/no"
 OPENSEARCH_SERVERLESS_ENV = os.environ.get("OPENSEARCH_SERVERLESS", "").strip().lower()
 # -----------------------
 
@@ -67,7 +59,6 @@ def resolve_serverless_collection_endpoint_from_arn(collection_arn: str, region_
     if not region:
         raise RuntimeError("Region could not be determined from ARN or AWS_REGION.")
 
-    # call opensearchserverless to fetch collection details (collectionEndpoint)
     client = boto3.client("opensearchserverless", region_name=region)
     resp = client.batch_get_collection(ids=[collection_id])
     details = resp.get("collectionDetails", [])
@@ -107,8 +98,6 @@ def resolve_opensearch_host_and_service(host_value: str,
         region = env_region or AWS_REGION or boto3.Session().region_name
         return host, service, region
 
-
-# Resolve host/service/region and override globals if needed
 resolved_host, resolved_service, resolved_region = resolve_opensearch_host_and_service(
     OPENSEARCH_HOST, env_region=AWS_REGION, env_service=OPENSEARCH_SERVICE
 )
@@ -117,13 +106,11 @@ OPENSEARCH_SERVICE = resolved_service
 if not AWS_REGION and resolved_region:
     AWS_REGION = resolved_region
 
-# Determine whether to operate in AOSS (serverless) mode.
 if OPENSEARCH_SERVERLESS_ENV in ("1", "true", "yes"):
     USE_OPENSEARCH_SERVERLESS = True
 elif OPENSEARCH_SERVERLESS_ENV in ("0", "false", "no"):
     USE_OPENSEARCH_SERVERLESS = False
 else:
-    # If service resolved to 'aoss' or host contains .aoss. or original was ARN, assume serverless.
     USE_OPENSEARCH_SERVERLESS = (OPENSEARCH_SERVICE == "aoss") or (".aoss." in (OPENSEARCH_HOST or "").lower()) or is_arn(os.environ.get("OPENSEARCH_HOST", ""))
 
 print(f"[info] using OpenSearch host: {OPENSEARCH_HOST}  (service={OPENSEARCH_SERVICE}, region={AWS_REGION}, serverless={USE_OPENSEARCH_SERVERLESS})")
@@ -166,13 +153,8 @@ def create_opensearch_client(region: str = AWS_REGION,
     )
     return client
 
-
-# Create client once
 opensearch_client = create_opensearch_client()
 
-# -----------------------
-# Tool: search_tickets
-# -----------------------
 @tool(name="search_tickets",
       description="Search the ticket knowledge base (OpenSearch) for similar tickets. "
                   "Returns top matching tickets including their displayId, subject, and resolutionSteps.")
@@ -184,7 +166,6 @@ def search_tickets(query_text: str, top_k: int = 3) -> Dict[str, Any]:
         query_text: Natural language text describing the new ticket
         top_k: how many results to return
     """
-    # Multi-field text search (adjust fields to match your index mapping)
     body = {
         "size": top_k,
         "query": {
@@ -202,12 +183,8 @@ def search_tickets(query_text: str, top_k: int = 3) -> Dict[str, Any]:
                 "operator": "or"
             }
         },
-        # return full source so we can access resolutionSteps
         "_source": ["ticketId", "displayId", "subject", "requester", "technician", "resolutionSteps", "status", "priority"]
     }
-
-    # For diagnostics, optionally print the query (comment out in production)
-    # print(f"[debug] OpenSearch query body: {json.dumps(body)}")
 
     resp = opensearch_client.search(body=body, index=OPENSEARCH_INDEX)
     hits = resp.get("hits", {}).get("hits", [])
@@ -229,10 +206,6 @@ def search_tickets(query_text: str, top_k: int = 3) -> Dict[str, Any]:
 
     return {"results": results}
 
-
-# -----------------------
-# Helper: small synthesizer (optional)
-# -----------------------
 def synthesize_steps_from_retrievals(retrievals: List[Dict[str, Any]], max_steps: int = 8) -> List[str]:
     seen = {}
     order = []
@@ -247,9 +220,6 @@ def synthesize_steps_from_retrievals(retrievals: List[Dict[str, Any]], max_steps
     return ordered[:max_steps]
 
 
-# -----------------------
-# Create Bedrock model and agent
-# -----------------------
 bedrock_model = BedrockModel(
     model_id=BEDROCK_MODEL_ID,
     temperature=0.0,
@@ -269,9 +239,6 @@ agent = Agent(
     ),
 )
 
-# -----------------------
-# Function to generate resolution suggestions for a new ticket dictionary
-# -----------------------
 def suggest_resolution_for_ticket(new_ticket: Dict[str, Any], top_k: int = 3) -> Dict[str, Any]:
     query_text = f"{new_ticket.get('subject','')}. " \
                  f"Requester: {new_ticket.get('requester',{}).get('name','')}. " \
@@ -317,10 +284,6 @@ def suggest_resolution_for_ticket(new_ticket: Dict[str, Any], top_k: int = 3) ->
 
     return parsed
 
-
-# -----------------------
-# Example usage
-# -----------------------
 if __name__ == "__main__":
     new_ticket_example = {
         "displayId": "NEW-001",
