@@ -1,128 +1,181 @@
-# app.py
-import os
-import json
-import threading
-import time
-from typing import Any, Dict, List, Optional
-from flask import Flask, jsonify, request
-from flask_cors import CORS  # Add this import
-from dotenv import load_dotenv
+from flask import Flask, request, jsonify
+import boto3
+import bcrypt
+import jwt
+import uuid
+import datetime
 from botocore.exceptions import ClientError
-
-# local helper (import or inline)
-from ingest_s3 import fetch_kb_from_s3  # assuming ingest_s3.py is next to this file
-
-load_dotenv()
-
-# Configuration (via env or .env)
-S3_BUCKET = "fixella-bucket-superhack"  # e.g. "my-kb-bucket" ; optional
-S3_KEY = "it_tickets_kb.json"
-AWS_REGION = "us-east-1"  # optional
-LOCAL_FALLBACK = os.path.join(os.path.dirname(__file__), "..", "it_tickets_kb.json")
-# normalize path
-LOCAL_FALLBACK = os.path.abspath(LOCAL_FALLBACK)
+from flask_cors import CORS
+from boto3.dynamodb.conditions import Key
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app) 
 
-# in-memory DB
-TICKETS_LOCK = threading.Lock()
-TICKETS: List[Dict[str, Any]] = []
-LAST_UPDATED: Optional[float] = None  # epoch seconds
+app.config['JWT_SECRET'] = "hello123"
+app.config['AWS_REGION'] = "us-east-1"
+app.config['DYNAMO_TABLE'] = "FixellaUsers"
 
+dynamodb = boto3.resource('dynamodb', region_name=app.config['AWS_REGION'])
+table = dynamodb.Table(app.config['DYNAMO_TABLE'])
 
-def load_kb_from_local(path: str) -> List[Dict[str, Any]]:
-    """Read KB from a local file path. If file missing, return empty list."""
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+@app.route("/signup", methods=["POST"])
+def signup():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
+        name = data.get("name")
 
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
 
-def reload_kb_from_s3_or_local() -> Dict[str, Any]:
-    """
-    Try to fetch KB from S3 (if configured). On S3 failure, fall back to local file.
-    Returns a status dict with metadata.
-    """
-    global TICKETS, LAST_UPDATED
-    fetched_from = "none"
-    kb = None
-    # attempt S3 if configured
-    if S3_BUCKET:
-        try:
-            kb = fetch_kb_from_s3(S3_BUCKET, S3_KEY, AWS_REGION)
-            fetched_from = f"s3://{S3_BUCKET}/{S3_KEY}"
-            # optionally write a local cache fallback
-            try:
-                os.makedirs(os.path.dirname(LOCAL_FALLBACK), exist_ok=True)
-                with open(LOCAL_FALLBACK, "w", encoding="utf-8") as f:
-                    json.dump(kb, f, ensure_ascii=False, indent=2)
-            except Exception:
-                # don't fail the whole operation if cache write fails
-                pass
-        except ClientError as ce:
-            fetched_from = f"s3-error: {str(ce)}"
-            kb = None
-        except Exception as e:
-            fetched_from = f"s3-error: {str(e)}"
-            kb = None
+        # Check if user already exists
+        response = table.scan(
+            FilterExpression="email = :email",
+            ExpressionAttributeValues={":email": email}
+        )
+        if response['Items']:
+            return jsonify({"error": "User already exists"}), 400
 
-    # if S3 didn't yield KB, try local fallback
-    if kb is None:
-        try:
-            kb = load_kb_from_local(LOCAL_FALLBACK)
-            if kb:
-                fetched_from = LOCAL_FALLBACK
-        except Exception as e:
-            kb = []
-            fetched_from = f"local-error: {str(e)}"
+        # Hash password
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-    # final fallback to empty list
-    if kb is None:
-        kb = []
+        # Create user record
+        user = {
+            "userId": str(uuid.uuid4()),
+            "email": email,
+            "name": name,
+            "passwordHash": password_hash,
+            "createdAt": datetime.datetime.utcnow().isoformat(),
+        }
+        table.put_item(Item=user)
 
-    # write into in-memory DB (thread-safe)
-    with TICKETS_LOCK:
-        TICKETS = kb
-        LAST_UPDATED = time.time()
+        return jsonify({"message": "User registered successfully"}), 201
 
-    return {"count": len(kb), "source": fetched_from, "last_updated": LAST_UPDATED}
+    except ClientError as e:
+        return jsonify({"error": str(e)}), 500
 
 
-# Load at startup (blocking)
-startup_info = reload_kb_from_s3_or_local()
-print("Startup KB load:", startup_info)
+@app.route("/login", methods=["POST"])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
 
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
 
-@app.route("/health")
-def health():
-    with TICKETS_LOCK:
-        return jsonify(
-            {"ok": True, "tickets_loaded": len(TICKETS), "last_updated": LAST_UPDATED}
+        # Find user by email
+        response = table.scan(
+            FilterExpression="email = :email",
+            ExpressionAttributeValues={":email": email}
+        )
+        if not response['Items']:
+            return jsonify({"error": "User not found"}), 404
+
+        user = response['Items'][0]
+
+        # Verify password
+        if not bcrypt.checkpw(password.encode('utf-8'), user['passwordHash'].encode('utf-8')):
+            return jsonify({"error": "Invalid credentials"}), 401
+
+        # Generate JWT token
+        token = jwt.encode(
+            {
+                "userId": user["userId"],
+                "email": user["email"],
+                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=6)
+            },
+            app.config["JWT_SECRET"],
+            algorithm="HS256"
         )
 
+        return jsonify({"message": "Login successful", "token": token}), 200
 
-@app.route("/tickets")
-def tickets():
-    # Return all tickets (same shape as original app expected)
-    with TICKETS_LOCK:
-        # return a shallow copy to avoid accidental external mutation
-        return jsonify(list(TICKETS))
+    except ClientError as e:
+        return jsonify({"error": str(e)}), 500
 
+@app.route("/me", methods=["GET"])
+def get_profile():
+    token = request.headers.get("Authorization")
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
 
-@app.route("/refresh", methods=["POST", "GET"])
-def refresh():
-    """
-    Force reload of the KB from S3 (if configured) or local file.
-    This endpoint allows you to trigger re-ingestion without restarting Flask.
-    """
-    result = reload_kb_from_s3_or_local()
-    return jsonify(result)
+    try:
+        decoded = jwt.decode(token, app.config["JWT_SECRET"], algorithms=["HS256"])
+        userId = decoded["userId"]
+
+        response = table.get_item(Key={"userId": userId})
+        if "Item" not in response:
+            return jsonify({"error": "User not found"}), 404
+
+        user = response["Item"]
+        return jsonify({
+            "userId": user["userId"],
+            "email": user["email"],
+            "name": user.get("name"),
+        }), 200
+
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    
+@app.route("/tickets", methods=["GET"])
+def get_tickets():
+    token = request.headers.get("Authorization")
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    try:
+        decoded = jwt.decode(token, app.config["JWT_SECRET"], algorithms=["HS256"])
+        userId = decoded["userId"]
+
+        # DynamoDB table for tickets
+        tickets_table = dynamodb.Table("FixellaTickets")
+
+        # Query using the technician GSI
+        response = tickets_table.query(
+            IndexName="technician-index",  # GSI on top-level technician_userId
+            KeyConditionExpression="technician_userId = :tid",
+            ExpressionAttributeValues={":tid": userId}
+        )
+
+        tickets = response.get("Items", [])
+
+        # Map tickets to a cleaner structure for frontend
+        ticket_list = []
+        for t in tickets:
+            ticket_list.append({
+                "ticketId": t.get("ticketId"),
+                "displayId": t.get("displayId"),
+                "title": t.get("subject"),
+                "ticketType": t.get("ticketType"),
+                "requestType": t.get("requestType"),
+                "source": t.get("source"),
+                "clientName": t.get("client", {}).get("name"),
+                "siteName": t.get("site", {}).get("name"),
+                "requesterName": t.get("requester", {}).get("name"),
+                "technicianName": t.get("technician", {}).get("name"),
+                "status": t.get("status"),
+                "priority": t.get("priority"),
+                "impact": t.get("impact"),
+                "urgency": t.get("urgency"),
+                "createdAt": t.get("createdTime"),
+                "updatedAt": t.get("updatedTime"),
+                "worklogTimespent": t.get("worklogTimespent", "0.00")
+            })
+
+        return jsonify({"tickets": ticket_list}), 200
+
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    except ClientError as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    # dev server
-    debug = os.getenv("FLASK_DEBUG", "1") not in ("0", "false", "no")
-    host = os.getenv("FLASK_HOST", "127.0.0.1")
-    port = int(os.getenv("FLASK_PORT", "5000"))
-    app.run(debug=debug, host=host, port=port)
+    app.run(debug=True)
