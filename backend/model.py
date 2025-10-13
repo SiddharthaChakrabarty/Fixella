@@ -47,7 +47,7 @@ AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 S3_BUCKET = "fixella-bucket-superhack"            # <-- set this if you want upload to S3
 S3_KEY = "it_tickets_kb.json"
 MODEL_S3_PATH = "models/ticket_escalation_model.joblib"
-LOCAL_MODEL_PATH = "/tmp/ticket_escalation_model.joblib"
+LOCAL_MODEL_PATH = "ticket_escalation_model.joblib"
 
 s3 = boto3.client("s3", region_name=AWS_REGION)
 
@@ -242,11 +242,11 @@ def build_pipeline(sklearn_version=sklearn.__version__):
         ("num", num_pipeline, num_cols)
     ], remainder="drop", sparse_threshold=0)
 
-    # classifier: RandomForest (robust) or XGBoost if available
-    if XGBOOST_AVAILABLE:
-        clf = xgb.XGBClassifier(use_label_encoder=False, eval_metric="logloss", n_jobs=4, random_state=42)
-    else:
-        clf = RandomForestClassifier(n_estimators=300, n_jobs=-1, random_state=42, class_weight="balanced")
+    # # classifier: RandomForest (robust) or XGBoost if available
+    # if XGBOOST_AVAILABLE:
+    #     clf = xgb.XGBClassifier(use_label_encoder=False, eval_metric="logloss", n_jobs=4, random_state=42)
+    # else:
+    clf = RandomForestClassifier(n_estimators=300, n_jobs=-1, random_state=42, class_weight="balanced")
 
     pipeline = Pipeline([
         ("preproc", preprocessor),
@@ -306,7 +306,7 @@ def build_and_train(df: pd.DataFrame, run_hpo: bool = False):
         print("ROC AUC unavailable.")
 
     # Save model locally and upload to S3
-    os.makedirs(os.path.dirname(LOCAL_MODEL_PATH), exist_ok=True)
+    
     joblib.dump(model, LOCAL_MODEL_PATH)
     print(f"Model saved locally to {LOCAL_MODEL_PATH}")
     try:

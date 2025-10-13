@@ -1,19 +1,25 @@
 # inference.py
 import os
+import sys
 import json
 import joblib
-import numpy as np
-import pandas as pd
+import boto3
+import tempfile
+import logging
 from datetime import datetime
 
-# The training code used custom transformers (TextSelector, ColumnSelector).
-# If your saved joblib references custom classes you used when training,
-# ensure they are defined here with the exact same names or the model was saved
-# using cloudpickle. If you used the shared-module approach, import those classes.
-# For robustness include simple stand-ins below (must match names used when saving).
-
+import numpy as np
+import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
+# Logging setup
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+# -------------------------
+# Custom transformer stubs
+# -------------------------
 class TextSelector(BaseEstimator, TransformerMixin):
     def __init__(self, key):
         self.key = key
@@ -21,9 +27,13 @@ class TextSelector(BaseEstimator, TransformerMixin):
         return self
     def transform(self, X):
         try:
-            return X[self.key].fillna("").astype(str).values
+            series = X[self.key].fillna("").astype(str)
+            return series.values
         except Exception:
-            return pd.Series([str(x.get(self.key, "")) for x in X]).values
+            try:
+                return pd.Series([str(x.get(self.key, "")) for x in X]).values
+            except Exception:
+                return np.array([ "" for _ in range(len(X)) ])
 
 class ColumnSelector(BaseEstimator, TransformerMixin):
     def __init__(self, keys):
@@ -36,7 +46,15 @@ class ColumnSelector(BaseEstimator, TransformerMixin):
         except Exception:
             return pd.DataFrame(X)[self.keys]
 
-# ----------------- feature helpers (must match training) -----------------
+# Ensure classes are resolvable during unpickle if saved under __main__
+_main = sys.modules.get("__main__")
+if _main is not None:
+    setattr(_main, "TextSelector", TextSelector)
+    setattr(_main, "ColumnSelector", ColumnSelector)
+
+# -------------------------
+# Feature helpers
+# -------------------------
 def parse_iso(ts):
     if not ts:
         return None
@@ -45,10 +63,10 @@ def parse_iso(ts):
     try:
         return datetime.fromisoformat(ts)
     except Exception:
-        formats = ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S")
-        for fmt in formats:
+        from datetime import datetime as _dt
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
             try:
-                return datetime.strptime(ts, fmt)
+                return _dt.strptime(ts, fmt)
             except Exception:
                 pass
     return None
@@ -90,7 +108,7 @@ def flatten_ticket(ticket: dict) -> dict:
     flat["subject_len"] = len(flat["subject"])
     flat["resolution_len"] = len(flat["resolution_text"])
     flat["has_followers"] = int(flat["followers_count"] > 0)
-    # fill defaults used during training
+    # Fill defaults used during training
     flat["priority"] = flat.get("priority") or "Unknown"
     flat["impact"] = flat.get("impact") or "Unknown"
     flat["urgency"] = flat.get("urgency") or "Unknown"
@@ -99,86 +117,153 @@ def flatten_ticket(ticket: dict) -> dict:
     flat["technician_name"] = flat.get("technician_name") or "Unknown"
     return flat
 
-# Model object will be stored in global variable `model`
-model = None
+# -------------------------
+# Model load helpers
+# -------------------------
+def _download_s3_uri_to_local(s3_uri: str, local_path: str):
+    if not s3_uri:
+        raise ValueError("s3_uri is empty")
+    if s3_uri.startswith("s3://"):
+        _, _, rest = s3_uri.partition("s3://")
+        parts = rest.split("/", 1)
+        if len(parts) != 2:
+            raise ValueError("Invalid s3 uri: " + s3_uri)
+        bucket, key = parts
+    else:
+        parts = s3_uri.split("/", 1)
+        if len(parts) != 2:
+            raise ValueError("Invalid s3 uri: " + s3_uri)
+        bucket, key = parts
+    logger = logging.getLogger(__name__)
+    logger.info("Downloading model from S3: s3://%s/%s -> %s", bucket, key, local_path)
+    s3 = boto3.client("s3")
+    s3.download_file(bucket, key, local_path)
+    return local_path
+
+_model = None
 
 def model_fn(model_dir):
     """
-    Called by SageMaker to load the model. The training packaging created model.joblib at
-    the root of the tarball, so the container will extract it under model_dir/model.joblib.
+    SageMaker calls this to load the model. Search typical names and also allow
+    MODEL_S3_URI environment variable as fallback to download a .joblib from S3.
     """
-    global model
-    model_path = os.path.join(model_dir, "model.joblib")
-    if not os.path.exists(model_path):
-        # also check common alternative names
-        alt = [os.path.join(model_dir, "model.pkl"), os.path.join(model_dir, "ticket_escalation_model.joblib")]
-        for p in alt:
-            if os.path.exists(p):
-                model_path = p
-                break
-    model = joblib.load(model_path)
-    return model
+    global _model
+    if _model is not None:
+        return _model
 
-def input_fn(serialized_input, content_type):
-    """
-    Accepts application/json content. Input may be a single ticket (JSON object),
-    or a list of tickets.
-    """
-    if content_type == "application/json" or content_type == "application/jsonlines":
+    logger.info("Attempting to load model from model_dir: %s", model_dir)
+    candidates = [
+        os.path.join(model_dir, "model.joblib"),
+        os.path.join(model_dir, "model.pkl"),
+        os.path.join(model_dir, "ticket_escalation_model.joblib"),
+        os.path.join(model_dir, "ticket_escalation_model.pkl"),
+    ]
+
+    found = None
+    for p in candidates:
+        if p and os.path.exists(p):
+            found = p
+            break
+
+    # If not found, allow MODEL_S3_URI env var (e.g. s3://bucket/path/to/joblib)
+    if not found:
+        s3_uri = os.environ.get("MODEL_S3_URI") or os.environ.get("MODEL_S3_PATH")
+        if s3_uri:
+            tmpf = os.path.join(tempfile.gettempdir(), os.path.basename(s3_uri))
+            try:
+                _download_s3_uri_to_local(s3_uri, tmpf)
+                found = tmpf
+            except Exception as e:
+                logger.exception("Failed to download model from S3 URI '%s': %s", s3_uri, str(e))
+                raise
+
+    if not found:
+        explicit = os.environ.get("MODEL_FILE_PATH")
+        if explicit and os.path.exists(explicit):
+            found = explicit
+
+    if not found:
+        logger.error("Model artifact not found in: %s. Provide MODEL_S3_URI or ensure model.tar.gz extracted with model.joblib.", candidates)
+        raise FileNotFoundError("Model artifact not found and no MODEL_S3_URI provided.")
+
+    try:
+        logger.info("Loading model from: %s", found)
+        _model = joblib.load(found)
+        logger.info("Model loaded successfully.")
+        return _model
+    except Exception as e:
+        logger.exception("Exception while loading model from %s: %s", found, str(e))
+        raise RuntimeError(f"Failed to load model (joblib.load) from {found}: {e}")
+
+# -------------------------
+# Input / predict / output
+# -------------------------
+def input_fn(serialized_input, content_type="application/json"):
+    if content_type in ("application/json", "application/jsonlines"):
         data = json.loads(serialized_input)
-        # If user sends a single ticket object, wrap it in a list
         if isinstance(data, dict):
             return [data]
         elif isinstance(data, list):
             return data
         else:
-            raise ValueError("Unsupported JSON input type: expected object or list")
+            raise ValueError("JSON input must be an object or array.")
     else:
-        raise ValueError(f"Unsupported content type: {content_type}")
+        raise ValueError("Unsupported content type: %s" % content_type)
 
 def predict_fn(input_data, model):
-    """
-    input_data is a list of raw ticket JSON dicts.
-    Returns predictions and probabilities (if available).
-    """
-    # Flatten into dataframe using same features as training
     rows = [flatten_ticket(t) for t in input_data]
     df = pd.DataFrame(rows)
+
     feature_cols = [
         "subject", "resolution_text",
         "priority", "impact", "urgency", "category", "subcategory", "technician_name",
         "followers_count", "worklogTimespent", "created_hour", "created_weekday",
         "subject_len", "resolution_len", "has_followers"
     ]
-    X = df[feature_cols]
-    # ensure types align: fill missing columns
     for c in feature_cols:
-        if c not in X.columns:
-            X[c] = None
+        if c not in df.columns:
+            df[c] = None
 
-    preds = model.predict(X)
-    # optionally include probabilities
+    X = df[feature_cols]
+
+    for tcol in ("subject", "resolution_text", "priority", "impact", "urgency", "category", "subcategory", "technician_name"):
+        if tcol in X.columns:
+            X[tcol] = X[tcol].fillna("").astype(str)
+
+    for ncol in ("followers_count", "worklogTimespent", "created_hour", "created_weekday", "subject_len", "resolution_len", "has_followers"):
+        if ncol in X.columns:
+            X[ncol] = pd.to_numeric(X[ncol], errors="coerce").fillna(0.0)
+
+    try:
+        preds = model.predict(X)
+    except Exception as e:
+        logger.exception("Error during model.predict: %s", e)
+        raise
+
     probs = None
     try:
         if hasattr(model, "predict_proba"):
             p = model.predict_proba(X)
-            # p[:,1] is probability for class 1
-            probs = p[:, 1].tolist()
-    except Exception:
+            if p.ndim == 1:
+                probs = p.tolist()
+            else:
+                probs = p[:, 1].tolist() if p.shape[1] > 1 else p[:, 0].tolist()
+    except Exception as e:
+        logger.warning("predict_proba not available or failed: %s", e)
         probs = None
 
     results = []
-    for i, ticket in enumerate(input_data):
-        res = {
-            "ticketId": ticket.get("ticketId"),
-            "prediction": int(preds[i]),
-        }
+    for i, original in enumerate(input_data):
+        res = {"ticketId": original.get("ticketId"), "prediction": int(preds[i])}
         if probs is not None:
-            res["probability_class1"] = float(probs[i])
+            try:
+                res["probability_class1"] = float(probs[i])
+            except Exception:
+                res["probability_class1"] = None
         results.append(res)
     return results
 
 def output_fn(prediction, accept="application/json"):
     if accept == "application/json":
         return json.dumps(prediction), "application/json"
-    raise ValueError("Only application/json is supported as accept header")
+    raise ValueError("Unsupported accept type: %s" % accept)
