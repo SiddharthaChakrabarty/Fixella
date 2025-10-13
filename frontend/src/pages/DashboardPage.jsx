@@ -349,7 +349,7 @@ export function DashboardPage() {
 
               try {
                 const token = localStorage.getItem("token");
-                const res = await fetch("http://127.0.0.1:5000/ask_ai", {
+                const res = await fetch("http://127.0.0.1:5000/ai/chat", {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",

@@ -26,6 +26,8 @@ try:
     AGENT_SUBSTEPS_AVAILABLE = True
 except Exception:
     AGENT_SUBSTEPS_AVAILABLE = False
+    
+from agents.chat_agent import chat_with_agent
 
 app = Flask(__name__)
 CORS(app)
@@ -211,7 +213,7 @@ def get_tickets():
 
 
 # === new route ===
-@app.route("/ask_ai", methods=["POST"])
+@app.route("/ai/ask_ai", methods=["POST"])
 def ask_ai():
     token = request.headers.get("Authorization")
     if not token:
@@ -275,7 +277,7 @@ def ask_ai():
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 
-@app.route("/substeps", methods=["POST"])
+@app.route("/ai/substeps", methods=["POST"])
 def substeps():
     token = request.headers.get("Authorization")
     if not token:
@@ -312,6 +314,35 @@ def substeps():
     except Exception as e:
         # include message for debugging in dev; sanitize in production
         return jsonify({"error": "Substeps generation failed", "details": str(e)}), 500
+    
+@app.route("/ai/chat", methods=["POST"])
+def chat_route():
+    # authenticate
+    token = request.headers.get("Authorization")
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+    try:
+        decoded = jwt.decode(token, app.config["JWT_SECRET"], algorithms=["HS256"])
+        userId = decoded["userId"]
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+
+    body = request.get_json(silent=True) or {}
+    question = (body.get("question") or body.get("q") or "").strip()
+    conversation = body.get("conversation", []) or []
+    ticket_context = body.get("ticket_context", None)
+    top_k = int(body.get("top_k", 5))
+
+    if not question:
+        return jsonify({"error": "Missing 'question' in request"}), 400
+
+    try:
+        resp = chat_with_agent(conversation=conversation, question=question, ticket_context=ticket_context, top_k=top_k)
+        return jsonify({"result": resp, "error": None}), 200
+    except Exception as e:
+        return jsonify({"result": None, "error": str(e)}), 500
 
 
 if __name__ == "__main__":
