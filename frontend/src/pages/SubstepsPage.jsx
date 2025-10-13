@@ -67,6 +67,11 @@ export function SubstepsPage() {
         );
     }
 
+    const goToShare = () => {
+        // pass down STEP, TICKET and SUBSTEPS so share page can render and use them
+        navigate("/share", { state: { step, ticket, substeps: result?.recommendedSubsteps || [] } });
+    };
+
     return (
         <div className="min-h-screen p-8 bg-gray-50 dark:bg-[#0f1724] text-slate-900 dark:text-slate-100">
             <button
@@ -90,7 +95,7 @@ export function SubstepsPage() {
                     {/* Share screen button: navigates to dedicated Share page */}
                     <div>
                         <button
-                            onClick={() => navigate("/share", { state: { step, ticket } })}
+                            onClick={goToShare}
                             className="px-3 py-2 rounded-md bg-indigo-600 text-white shadow hover:bg-indigo-700"
                         >
                             Share screen

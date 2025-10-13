@@ -183,6 +183,7 @@ def handle_snapshot(data):
     """
     img_data = data.get("image", "")
     ticket_suggestion = data.get("ticket_suggestion", "No suggestion provided.")
+    print(ticket_suggestion)
 
     if not isinstance(img_data, str) or not img_data.startswith("data:image"):
         emit("nova_suggestion", {"suggestion": "Invalid image data (expected data URL)."})
