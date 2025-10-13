@@ -29,8 +29,24 @@ except Exception:
     
 from agents.chat_agent import chat_with_agent
 
+from agents.kb_store import (
+    kb_get_status,
+    kb_get_tickets,
+    kb_find_ticket,
+    kb_search,
+    kb_reload,
+    kb_get_kg,
+    kb_find_node,
+    kb_find_edges,
+    kb_search_nodes,
+)
+
+import logging
+
 app = Flask(__name__)
 CORS(app)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app.config["JWT_SECRET"] = "hello123"
 app.config["AWS_REGION"] = "us-east-1"
@@ -38,7 +54,6 @@ app.config["DYNAMO_TABLE"] = "FixellaUsers"
 
 dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION"])
 table = dynamodb.Table(app.config["DYNAMO_TABLE"])
-
 
 @app.route("/signup", methods=["POST"])
 def signup():
@@ -343,7 +358,120 @@ def chat_route():
         return jsonify({"result": resp, "error": None}), 200
     except Exception as e:
         return jsonify({"result": None, "error": str(e)}), 500
+    
+@app.route("/kg/health", methods=["GET"])
+def kg_health():
+    """
+    Simple health/status for the knowledge graph KB.
+    """
+    try:
+        status = kb_get_status()
+        return jsonify({"ok": True, "status": status}), 200
+    except Exception as e:
+        logger.exception("kg_health error")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
+@app.route("/kg/tickets", methods=["GET"])
+def kg_tickets():
+    """
+    Return tickets for the knowledge graph UI.
+    Returns: { "tickets": [ ... ] }
+    """
+    try:
+        tickets = kb_get_tickets()
+        return jsonify({"tickets": tickets}), 200
+    except Exception as e:
+        logger.exception("kg_tickets error")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/kg/ticket/<ticket_id>", methods=["GET"])
+def kg_ticket(ticket_id):
+    """
+    Return a single ticket by ticketId or displayId.
+    """
+    try:
+        t = kb_find_ticket(ticket_id)
+        if not t:
+            return jsonify({"error": "Ticket not found"}), 404
+        return jsonify({"ticket": t}), 200
+    except Exception as e:
+        logger.exception("kg_ticket error")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/kg/search", methods=["GET"])
+def kg_search():
+    """
+    Lightweight local search endpoint.
+    Query params:
+    q=<text> (required)
+    top_k=<n> (optional)
+    """
+    q = request.args.get("q", "").strip()
+    try:
+        top_k = int(request.args.get("top_k", "10"))
+    except Exception:
+        top_k = 10
+    if not q:
+        return jsonify({"error": "q parameter required"}), 400
+    try:
+        hits = kb_search(q, top_k=top_k)
+        return jsonify({"query": q, "count": len(hits), "hits": hits}), 200
+    except Exception as e:
+        logger.exception("kg_search error")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/kg/refresh", methods=["POST", "GET"])
+def kg_refresh():
+    """
+    Force reload of KB (S3 or local). Returns reload status with KG metadata.
+    """
+    try:
+        result = kb_reload()
+        return jsonify(result), 200
+    except Exception as e:
+        logger.exception("kg_refresh error")
+        return jsonify({"error": str(e)}), 500
+    
+# Additional helper endpoints for the graph model
+@app.route("/kg/graph", methods=["GET"])
+def kg_graph():
+    """Return the full cached knowledge graph (nodes, edges, last_built)."""
+    try:
+        kg = kb_get_kg()
+        return jsonify(kg), 200
+    except Exception as e:
+        logger.exception("kg_graph error")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/kg/node/<path:node_id>", methods=["GET"])
+def kg_node(node_id):
+    """Return a node and its connected edges."""
+    try:
+        node = kb_find_node(node_id)
+        if not node:
+            return jsonify({"error": "Node not found"}), 404
+        edges = kb_find_edges(node_id)
+        return jsonify({"node": node, "edges": edges}), 200
+    except Exception as e:
+        logger.exception("kg_node error")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/kg/nodes/search", methods=["GET"])
+def kg_nodes_search():
+    """Search nodes by text query. q and optional top_k."""
+    q = request.args.get("q", "").strip()
+    try:
+        top_k = int(request.args.get("top_k", "20"))
+    except Exception:
+        top_k = 20
+        if not q:
+            return jsonify({"error": "q parameter required"}), 400
+    try:
+        hits = kb_search_nodes(q, top_k=top_k)
+        return jsonify({"query": q, "count": len(hits), "hits": hits}), 200
+    except Exception as e:
+        logger.exception("kg_nodes_search error")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
