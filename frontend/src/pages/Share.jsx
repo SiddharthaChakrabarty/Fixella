@@ -1,4 +1,4 @@
-// SharePage.jsx
+// SharePage.jsx (fixed: avoid stale activeId in interval by using a ref)
 import React, { useRef, useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
@@ -14,9 +14,14 @@ export function SharePage() {
   const { step, ticket, substeps: initialSubsteps } = location.state || {};
 
   const [substeps, setSubsteps] = useState(() =>
-    (initialSubsteps || []).map((s) => ({ ...s, done: false }))
+    (initialSubsteps || []).map((s) => ({ ...s, done: !!s.done }))
   );
-  const [activeId, setActiveId] = useState(null); // id of selected substep (for snapshot context)
+
+  // Initialize activeId to the first incomplete substep (if any).
+  const firstId = (initialSubsteps && initialSubsteps.length)
+    ? initialSubsteps[0].id
+    : null;
+  const [activeId, setActiveId] = useState(firstId);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0f1724] text-slate-900 dark:text-slate-100 p-8">
@@ -63,12 +68,15 @@ export function SharePage() {
 
               <ul className="space-y-2">
                 {substeps.map((s) => {
-                  const isActive = activeId === s.id;
+                  const isActive = String(activeId) === String(s.id);
                   return (
                     <li
                       key={s.id}
                       className={`p-3 rounded-lg border ${isActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" : "border-slate-100 dark:border-slate-700"} cursor-pointer`}
-                      onClick={() => setActiveId(s.id)}
+                      onClick={() => {
+                        // allow user to manually focus a substep (optional)
+                        setActiveId(s.id);
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">
@@ -82,8 +90,32 @@ export function SharePage() {
                               type="checkbox"
                               checked={!!s.done}
                               onChange={(e) => {
-                                const updated = substeps.map((x) => (x.id === s.id ? { ...x, done: e.target.checked } : x));
-                                setSubsteps(updated);
+                                const checked = e.target.checked;
+                                setSubsteps((prev) => {
+                                  const updated = prev.map((x) =>
+                                    String(x.id) === String(s.id) ? { ...x, done: checked } : x
+                                  );
+
+                                  if (checked) {
+                                    // find next incomplete after this index
+                                    const idx = updated.findIndex((x) => String(x.id) === String(s.id));
+                                    let next = null;
+                                    for (let i = idx + 1; i < updated.length; i++) {
+                                      if (!updated[i].done) {
+                                        next = updated[i].id;
+                                        break;
+                                      }
+                                    }
+                                    if (next === null) {
+                                      // wrap: pick first incomplete (if any)
+                                      const firstIncomplete = updated.find((x) => !x.done && String(x.id) !== String(s.id));
+                                      next = firstIncomplete ? firstIncomplete.id : null;
+                                    }
+                                    setActiveId(next);
+                                  }
+
+                                  return updated;
+                                });
                               }}
                             />
                             <span className="text-xs text-slate-500">Done</span>
@@ -103,9 +135,9 @@ export function SharePage() {
             <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
               <h3 className="font-medium text-sm text-slate-700 dark:text-slate-200 mb-2">Quick tips</h3>
               <ul className="text-sm text-slate-600 dark:text-slate-300 space-y-2">
-                <li>– Click a substep to select it. The selected substep is sent as context with each snapshot.</li>
-                <li>– Check Done when you've completed the substep.</li>
-                <li>– Use the Snapshot button to save/send an immediate snapshot with the selected substep context.</li>
+                <li>– The app automatically sends the current substep context with each snapshot.</li>
+                <li>– When the server confirms a substep is complete, it will be auto-checked and we’ll advance to the next one for you.</li>
+                <li>– You can still manually check a step to mark it done and advance.</li>
               </ul>
             </div>
           </aside>
@@ -117,8 +149,6 @@ export function SharePage() {
 
 /**
  * ScreenShare component (internal to SharePage)
- * - manages getDisplayMedia, snapshot generation, Socket.IO connection
- * - includes selected substep content in ticket_suggestion for each snapshot
  */
 function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubsteps }) {
   const videoRef = useRef(null);
@@ -129,6 +159,12 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
   const [sharing, setSharing] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const [ssError, setSsError] = useState("");
+
+  // NEW: a ref that always holds the latest activeId (fixes stale closure)
+  const activeIdRef = useRef(activeId);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   useEffect(() => {
     // attach videoRef to the rendered <video> element once mounted
@@ -162,7 +198,6 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
       setSharing(true);
 
       if (!socketRef.current) {
-        // include auth token in auth payload if desired
         const token = localStorage.getItem("token");
         socketRef.current = io("ws://localhost:5001", {
           transports: ["websocket"],
@@ -171,7 +206,10 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
 
         socketRef.current.on("connect", () => {
           setSocketConnected(true);
-          // begin periodic snapshots every 10s
+
+          // immediately send one snapshot for the current active substep,
+          // then start periodic snapshots every 10s.
+          sendSnapshot();
           if (intervalRef.current) clearInterval(intervalRef.current);
           intervalRef.current = setInterval(() => sendSnapshot(), 10000);
         });
@@ -185,10 +223,62 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
           setSsError("WebSocket connection error");
         });
 
-        // Optional: receive suggestions back from server for UI
-        socketRef.current.on("nova_suggestion", (payload) => {
-          console.log("Server suggestion:", payload);
-          // you could show a toast or UI element here
+        // Listen for snapshot acknowledgements from the server and mark substeps done only on YES.
+        socketRef.current.on("snapshot_ack", (payload) => {
+          try {
+            const id = payload?.substep_id;
+            const decision = (payload?.decision || "").toUpperCase();
+
+            if (id !== null && id !== undefined && decision === "YES") {
+              // Mark this substep done and advance to the next incomplete substep.
+              setSubsteps((prev) => {
+                const updated = prev.map((s) => (String(s.id) === String(id) ? { ...s, done: true } : s));
+
+                // find index of current substep
+                const idx = updated.findIndex((s) => String(s.id) === String(id));
+                let next = null;
+                if (idx >= 0) {
+                  for (let i = idx + 1; i < updated.length; i++) {
+                    if (!updated[i].done) {
+                      next = updated[i].id;
+                      break;
+                    }
+                  }
+                }
+                if (next === null) {
+                  // wrap: find first incomplete
+                  const firstIncomplete = updated.find((s) => !s.done && String(s.id) !== String(id));
+                  next = firstIncomplete ? firstIncomplete.id : null;
+                }
+
+                // update activeId to next (if any)
+                setActiveId(next);
+                // also update ref immediately so the interval uses the new value
+                activeIdRef.current = next;
+
+                // If there are no more incomplete steps, stop the periodic snapshots
+                if (next === null && intervalRef.current) {
+                  clearInterval(intervalRef.current);
+                  intervalRef.current = null;
+                }
+
+                return updated;
+              });
+
+              // Immediately request a new snapshot for the new active substep (if any).
+              // Small delay to allow state to settle; we also read the ref inside sendSnapshot.
+              setTimeout(() => {
+                if (activeIdRef.current != null && socketRef.current && socketRef.current.connected) {
+                  sendSnapshot();
+                }
+              }, 200);
+            } else {
+              // decision != YES: do nothing special
+              console.log("snapshot_ack (NO or undecided):", payload);
+            }
+          } catch (e) {
+            console.error("Error handling snapshot_ack:", e);
+          }
         });
       }
 
@@ -248,14 +338,20 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
     return parts.join("\n");
   }
 
-  function getActiveContext() {
-    const active = (substeps || []).find((s) => s.id === activeId);
+  function getActiveContextFromRef() {
+    const active = (substeps || []).find((s) => String(s.id) === String(activeIdRef.current));
     if (active) return buildSubstepContext(active);
-    // fallback to top-level step
     return step || "";
   }
 
   function sendSnapshot() {
+    // Use the ref for activeId so interval doesn't use stale closure
+    const curActiveId = activeIdRef.current;
+
+    if (curActiveId == null) {
+      // nothing to check
+      return;
+    }
     if (!videoRef.current || !socketRef.current || socketRef.current.disconnected) return;
     const video = videoRef.current;
     if (!video.videoWidth || !video.videoHeight) return;
@@ -277,10 +373,12 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
       const reader = new FileReader();
       reader.onloadend = () => {
         try {
-          const contextText = getActiveContext();
+          const contextText = getActiveContextFromRef();
+          // include activeIdRef explicitly so backend can ack the correct substep
           socketRef.current.emit("snapshot", {
             image: reader.result,
             ticket_suggestion: contextText,
+            active_id: curActiveId,
             timestamp: new Date().toISOString(),
           });
         } catch (e) {
@@ -351,7 +449,6 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
               // immediate snapshot + emit with active substep content
               if (sharing) sendSnapshot();
               else {
-                // if not sharing, still allow manual download snapshot of video if available
                 downloadSnapshot();
               }
             }}
@@ -365,7 +462,7 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
         </div>
 
         <div className="text-xs text-slate-400">
-          Selected context: <span className="font-medium">{substeps.find(s => s.id === activeId)?.title || step || "None"}</span>
+          Selected context: <span className="font-medium">{substeps.find(s => String(s.id) === String(activeId))?.title || step || "None"}</span>
         </div>
       </div>
 

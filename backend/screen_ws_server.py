@@ -2,6 +2,7 @@
 import os
 import json
 import base64
+import re
 from datetime import datetime
 
 from flask import Flask
@@ -11,7 +12,13 @@ from flask_socketio import SocketIO, emit
 import boto3
 from botocore.exceptions import ClientError
 
-# Add these imports at top
+# Optional strands integration (if you want to run an Agent rather than direct invoke).
+# If you have `strands-agents` installed and want the more agentic flow, uncomment and
+# follow the small example near the bottom of the file.
+# from strands import Agent, tool
+# from strands.models import BedrockModel
+
+# Add these imports at top for image detection/IO
 import imghdr
 import io
 
@@ -25,11 +32,12 @@ SNAPSHOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "snapshot
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
 BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Choose a multimodal-capable model you've been granted access to (example shown).
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
-MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "512"))
+MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "256"))
 TEMPERATURE = float(os.environ.get("BEDROCK_TEMPERATURE", "0.0"))
 
-# boto3 bedrock client
+# boto3 bedrock runtime client (used for InvokeModel multimodal)
 bedrock_client = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
 
 
@@ -40,35 +48,14 @@ def _detect_image_format_from_bytes(image_bytes: bytes, fallback_mime: str = Non
     """
     detected = imghdr.what(None, h=image_bytes)  # returns 'png', 'jpeg', 'gif', etc. or None
     if detected:
-        # imghdr returns 'jpeg' for JPEGs (Bedrock expects 'jpeg' or 'png')
         return detected
-    # fallback: fallback_mime might be like 'image/jpeg'
     if fallback_mime:
         try:
             return fallback_mime.split("/", 1)[1]
         except Exception:
             pass
-    # ultimate fallback
     return "png"
 
-def _convert_bytes_to_png(image_bytes: bytes) -> bytes:
-    """
-    Convert image bytes (jpeg, gif, etc.) to PNG bytes using Pillow.
-    Raises RuntimeError with guidance if Pillow isn't available.
-    """
-    try:
-        from PIL import Image
-    except Exception as e:
-        raise RuntimeError(
-            "Pillow is required for converting images to PNG. "
-            "Install it in your environment (pip install pillow) or send PNG bytes from the client."
-        ) from e
-
-    buf = io.BytesIO(image_bytes)
-    img = Image.open(buf)
-    out = io.BytesIO()
-    img.save(out, format="PNG")
-    return out.getvalue()
 
 def _safe_extract_text(model_response):
     """
@@ -79,7 +66,6 @@ def _safe_extract_text(model_response):
     try:
         return model_response["output"]["message"]["content"][0]["text"]
     except Exception:
-        # walk and accumulate strings
         texts = []
 
         def walk(x):
@@ -98,28 +84,35 @@ def _safe_extract_text(model_response):
         return json.dumps(model_response)[:4000]
 
 
-def analyze_snapshot_with_nova(image_bytes: bytes, ticket_suggestion: str, declared_format: str = None, force_png: bool = False):
+def analyze_snapshot_for_completion(
+    image_bytes: bytes,
+    substep_text: str,
+    declared_format: str = None,
+    force_png: bool = False
+):
     """
-    Build the Bedrock messages-v1 multimodal payload.
-    - If declared_format is given, it will be used only if it matches detected type.
-    - If force_png is True and bytes are not PNG, attempt to convert to PNG (requires Pillow).
+    Robust Bedrock multimodal call that determines whether a substep
+    has been visually completed in the given image.
     """
-    # detect format from bytes (imghdr) or fallback to declared_format
+
     detected_format = _detect_image_format_from_bytes(image_bytes, fallback_mime=declared_format)
-
-    # If caller insists on PNG, convert if necessary
-    if force_png and detected_format != "png":
-        image_bytes = _convert_bytes_to_png(image_bytes)
-        detected_format = "png"
-
-    # Base64 encode the (possibly converted) image for the InvokeModel JSON body
     b64 = base64.b64encode(image_bytes).decode("utf-8")
 
     system_list = [
         {
             "text": (
-                "You are an IT support assistant. Given a screenshot, provide "
-                "precise, concise instructions on where to click or which menu to use."
+                "You are a highly consistent visual verification assistant. "
+                "Your task is to look carefully at an image and decide if a given substep "
+                "has been COMPLETED. "
+                "You must respond with EXACTLY TWO LINES:\n"
+                "Line 1: either 'YES' or 'NO' (in uppercase, with no punctuation or other words)\n"
+                "Line 2: a short factual explanation (under 20 words) describing visual evidence only.\n\n"
+                "Rules:\n"
+                "- Never guess or assume intent.\n"
+                "- Only use visible evidence from the image.\n"
+                "- If uncertain, respond 'NO'.\n"
+                "- Do NOT include extra text, markdown, or commentary.\n"
+                "- The first word in the entire output must be strictly 'YES' or 'NO'.\n"
             )
         }
     ]
@@ -130,18 +123,16 @@ def analyze_snapshot_with_nova(image_bytes: bytes, ticket_suggestion: str, decla
             "content": [
                 {
                     "image": {
-                        # Use the detected format so Bedrock validation matches the bytes
                         "format": detected_format,
-                        "source": {
-                            "bytes": b64
-                        },
+                        "source": {"bytes": b64},
                     }
                 },
                 {
                     "text": (
-                        f"Ticket suggestion: {ticket_suggestion}\n\n"
-                        "Analyze the screenshot and tell the user exactly where to go or click. "
-                        "Be concise and specific: use menu names, button labels, and approximate location (e.g., top-right)."
+                        f"Visual verification target:\n{substep_text.strip()}\n\n"
+                        "Question: Based on the actual visual evidence, has this substep been completed?\n\n"
+                        "Remember: respond only as per the format described. "
+                        "Do not justify beyond a single evidence sentence."
                     )
                 },
             ],
@@ -152,67 +143,109 @@ def analyze_snapshot_with_nova(image_bytes: bytes, ticket_suggestion: str, decla
         "schemaVersion": "messages-v1",
         "system": system_list,
         "messages": message_list,
-        "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": TEMPERATURE},
+        "inferenceConfig": {
+            "maxTokens": MAX_TOKENS,
+            "temperature": 0.0,         # force determinism
+            "topP": 0.1,               # optional reproducibility
+        },
     }
 
-    try:
+    def _invoke_once():
         response = bedrock_client.invoke_model(
             modelId=BEDROCK_MODEL_ID,
             contentType="application/json",
             accept="application/json",
             body=json.dumps(native_request),
         )
-    except ClientError as e:
-        raise RuntimeError(f"Bedrock invoke_model failed: {e}") from e
-
-    try:
         raw = response["body"].read()
-        model_response = json.loads(raw)
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse Bedrock response: {e}\nRaw: {raw[:2000]}") from e
+        return json.loads(raw)
 
-    suggestion = _safe_extract_text(model_response)
-    return suggestion
+    model_response = _invoke_once()
+    text = _safe_extract_text(model_response) or ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    decision, explanation = None, ""
+
+    if lines:
+        first = lines[0].split()[0].upper() if lines[0] else ""
+        if first == "YES":
+            decision = "YES"
+        elif first == "NO":
+            decision = "NO"
+
+        if len(lines) > 1:
+            explanation = lines[1]
+        elif len(lines) == 1:
+            explanation = ""
+
+    # fallback: retry once if unclear
+    if decision not in ("YES", "NO"):
+        model_response = _invoke_once()
+        text = _safe_extract_text(model_response) or ""
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        first = lines[0].split()[0].upper() if lines else ""
+        if first == "YES":
+            decision = "YES"
+        elif first == "NO":
+            decision = "NO"
+        if len(lines) > 1:
+            explanation = lines[1]
+
+    if decision not in ("YES", "NO"):
+        decision = "NO"
+        explanation = explanation or "Unclear or ambiguous output from model."
+
+    return {
+        "decision": decision,
+        "explanation": explanation,
+        "raw": model_response,
+    }
+
 
 
 @socketio.on("snapshot")
 def handle_snapshot(data):
     """
     Expects data:
-      { image: "data:image/png;base64,....", ticket_suggestion: "..." }
+      { image: "data:image/png;base64,....", ticket_suggestion: "...", active_id: <substep id> }
+    Behavior:
+      - Save the image
+      - Call Bedrock to ask YES/NO whether the substep is done (using analyze_snapshot_for_completion)
+      - Emit back "snapshot_ack" with decision
     """
     img_data = data.get("image", "")
-    ticket_suggestion = data.get("ticket_suggestion", "No suggestion provided.")
-    print(ticket_suggestion)
+    substep_text = data.get("ticket_suggestion", "") or ""
+    active_id = data.get("active_id", None)
 
     if not isinstance(img_data, str) or not img_data.startswith("data:image"):
-        emit("nova_suggestion", {"suggestion": "Invalid image data (expected data URL)."})
+        emit("snapshot_ack", {
+            "substep_id": active_id,
+            "decision": "NO",
+            "explanation": "Invalid image data (expected data URL).",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        })
         return
 
     try:
         header, b64data = img_data.split(",", 1)
-        # header example: "data:image/jpeg;base64"
-        # Extract mime (e.g., "image/jpeg") if present
         mime = None
         if header.startswith("data:"):
             parts = header[5:].split(";")
             if parts:
-                mime = parts[0]  # e.g., "image/jpeg"
+                mime = parts[0]
     except Exception:
-        emit("nova_suggestion", {"suggestion": "Malformed image data."})
+        emit("snapshot_ack", {"substep_id": active_id, "decision": "NO", "explanation": "Malformed image data.", "timestamp": datetime.utcnow().isoformat() + "Z"})
         return
 
-    # decode
     try:
         image_bytes = base64.b64decode(b64data)
     except Exception as e:
-        emit("nova_suggestion", {"suggestion": f"Could not decode image: {e}"})
+        emit("snapshot_ack", {"substep_id": active_id, "decision": "NO", "explanation": f"Could not decode image: {e}", "timestamp": datetime.utcnow().isoformat() + "Z"})
         return
 
-
-    # save to snapshots dir for audit/debug
+    # save snapshot to disk (audit)
     now = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-    filename = f"snapshot_{now}.png"
+    ext = _detect_image_format_from_bytes(image_bytes, fallback_mime=mime) or "png"
+    filename = f"snapshot_{now}.{ext}"
     filepath = os.path.join(SNAPSHOT_DIR, filename)
     try:
         with open(filepath, "wb") as f:
@@ -220,18 +253,28 @@ def handle_snapshot(data):
     except Exception as e:
         print(f"Warning: failed to persist snapshot to disk: {e}")
 
-    print(f"Saved snapshot: {filepath}")
-
     # Analyze with Bedrock
-        # Analyze with Bedrock
     try:
-        # If you prefer to always send PNGs to Bedrock, set force_png=True (requires Pillow)
-        suggestion = analyze_snapshot_with_nova(image_bytes, ticket_suggestion, declared_format=mime, force_png=False)
-        print("Bedrock suggestion:\n", suggestion)
-        emit("nova_suggestion", {"suggestion": suggestion})
+        result = analyze_snapshot_for_completion(image_bytes, substep_text, declared_format=mime)
+        decision = result.get("decision", "NO")
+        explanation = result.get("explanation", "")
+        emit_payload = {
+            "substep_id": active_id,
+            "decision": decision,
+            "explanation": explanation,
+            "filepath": filename,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+        emit("snapshot_ack", emit_payload)
+        print("snapshot ack emitted:", emit_payload)
     except Exception as e:
         print("Error analyzing snapshot with Bedrock:", e)
-        emit("nova_suggestion", {"suggestion": f"Error analyzing snapshot: {e}"})
+        emit("snapshot_ack", {
+            "substep_id": active_id,
+            "decision": "NO",
+            "explanation": f"Server error during analysis: {e}",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        })
 
 
 @app.route("/")
@@ -242,6 +285,5 @@ def index():
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "1") not in ("0", "false", "no")
     host = os.getenv("FLASK_HOST", "127.0.0.1")
-    # keep the same port you used previously
     port = int(os.getenv("FLASK_PORT", "5001"))
     socketio.run(app, debug=debug, host=host, port=port)
