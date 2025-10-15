@@ -67,21 +67,22 @@ bedrock_model = BedrockModel(
 
 # Build system prompt that instructs the LLM to output only JSON
 SYSTEM_PROMPT = (
-    "You are an expert IT support assistant. "
-    "Input: a single short 'resolution step' such as "
-    '"Reset password via self-service portal" or "Disabled user account." '
-    "Task: produce an ordered, actionable list of UI-level substeps to execute that resolution. "
-    "Each substep should include: id (integer), title (short), step (action text), "
-    "whereToGo (UI path or location e.g., 'Windows: Start > Settings > ...', optional), "
-    "commands (list of single-line commands or API calls, optional), and notes (optional). "
-    "If helpful, you may call the available `search_tickets` tool (if present) to fetch similar historical tickets — do so first. "
-    "OUTPUT REQUIREMENT: respond with JSON ONLY and nothing else. The JSON must match this schema:\n\n"
-    "{\n"
-    '  "originalStep": "<the input step>",\n'
-    '  "recommendedSubsteps": [ { "id": 1, "title": "...", "step": "...", "whereToGo": "...", "commands": [], "notes": "" }, ... ],\n'
-    '  "sources": [ /* optional tool outputs or short references */ ]\n'
-    "}\n\n"
-    "Do not include any commentary, markdown, or extraneous text. If you are uncertain, prefer explicit, testable actions (e.g., where to click, exact menus, exact commands). "
+"You are an expert IT support assistant. "
+"Input: a single short 'resolution step' such as "
+'"Reset password via self-service portal" or "Disabled user account." '
+"Task: produce an ordered, actionable list of UI-level substeps to execute that resolution. "
+"Each substep should include: id (integer), title (short), step (action text), "
+"commands (list of single-line commands or API calls, optional), and notes (optional). "
+"IMPORTANT: Do NOT populate or invent the `whereToGo` field here — leave it empty or omit it. "
+"We will generate `whereToGo` later using a multimodal LLM that receives a screenshot and the substep. "
+"If helpful, you may call the available `search_tickets` tool (if present) to fetch similar historical tickets — do so first. "
+"OUTPUT REQUIREMENT: respond with JSON ONLY and nothing else. The JSON must match this schema:\n\n"
+"{\n"
+' "originalStep": "<the input step>",\n'
+' "recommendedSubsteps": [ { "id": 1, "title": "...", "step": "...", "commands": [], "notes": "" }, ... ],\n'
+' "sources": [ /* optional tool outputs or short references */ ]\n'
+"}\n\n"
+"Do not include any commentary, markdown, or extraneous text. If you are uncertain, prefer explicit, testable actions (e.g., where to click, exact menus, exact commands). "
 )
 
 # Register tools if available

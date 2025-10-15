@@ -1,4 +1,4 @@
-// SharePage.jsx (fixed: avoid stale activeId in interval by using a ref)
+// SharePage.jsx (updated: generate whereToGo on first snapshot, show loading, avoid including whereToGo in context)
 import React, { useRef, useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
@@ -13,14 +13,22 @@ export function SharePage() {
   const navigate = useNavigate();
   const { step, ticket, substeps: initialSubsteps } = location.state || {};
 
+  // Add whereToGo tracking fields:
+  // whereToGo: string (possibly empty)
+  // whereFetched: boolean (true if server produced a whereToGo)
+  // whereRequested: boolean (true while a request to generate whereToGo is outstanding / we optimistically set it)
   const [substeps, setSubsteps] = useState(() =>
-    (initialSubsteps || []).map((s) => ({ ...s, done: !!s.done }))
+    (initialSubsteps || []).map((s) => ({
+      ...s,
+      done: !!s.done,
+      whereToGo: s.whereToGo || "",
+      whereFetched: !!s.whereToGo,
+      whereRequested: false,
+    }))
   );
 
-  // Initialize activeId to the first incomplete substep (if any).
-  const firstId = (initialSubsteps && initialSubsteps.length)
-    ? initialSubsteps[0].id
-    : null;
+  // Initialize activeId to the first substep (if any).
+  const firstId = (initialSubsteps && initialSubsteps.length) ? initialSubsteps[0].id : null;
   const [activeId, setActiveId] = useState(firstId);
 
   return (
@@ -125,7 +133,13 @@ export function SharePage() {
                         </div>
                       </div>
 
-                      {s.whereToGo && <div className="text-xs text-slate-400 mt-2">Where: {s.whereToGo}</div>}
+                      {s.whereFetched && s.whereToGo && (
+                        <div className="text-xs text-slate-400 mt-2">Where: {s.whereToGo}</div>
+                      )}
+
+                      {!s.whereFetched && s.whereRequested && (
+                        <div className="text-xs text-slate-400 mt-2 italic">Where: Loading…</div>
+                      )}
                     </li>
                   );
                 })}
@@ -160,7 +174,7 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
   const [socketConnected, setSocketConnected] = useState(false);
   const [ssError, setSsError] = useState("");
 
-  // NEW: a ref that always holds the latest activeId (fixes stale closure)
+  // ref that always holds the latest activeId (fixes stale closure)
   const activeIdRef = useRef(activeId);
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -280,6 +294,31 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
             console.error("Error handling snapshot_ack:", e);
           }
         });
+
+        // Listen for where_response events (server generated whereToGo)
+        socketRef.current.on("where_response", (payload) => {
+          try {
+            const id = payload?.substep_id;
+            const whereToGo = payload?.whereToGo;
+            if (id !== null && id !== undefined) {
+              setSubsteps((prev) =>
+                prev.map((s) => {
+                  if (String(s.id) === String(id)) {
+                    return {
+                      ...s,
+                      whereToGo: whereToGo || s.whereToGo || "",
+                      whereFetched: !!whereToGo,
+                      whereRequested: false,
+                    };
+                  }
+                  return s;
+                })
+              );
+            }
+          } catch (e) {
+            console.error("Error handling where_response:", e);
+          }
+        });
       }
 
       // attach video element
@@ -327,12 +366,12 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
   }
 
   function buildSubstepContext(sub) {
-    // Format: Title, step, whereToGo, commands, notes (each on separate lines)
+    // Format: Title, step, commands, notes (each on separate lines)
+    // IMPORTANT: do NOT include whereToGo here; backend will generate it from the image + substep.
     if (!sub) return "";
     const parts = [];
     if (sub.title) parts.push(`${sub.title}`);
     if (sub.step) parts.push(`${sub.step}`);
-    if (sub.whereToGo) parts.push(`Where: ${sub.whereToGo}`);
     if (sub.commands && sub.commands.length) parts.push(`Commands: ${sub.commands.join(" ; ")}`);
     if (sub.notes) parts.push(`Notes: ${sub.notes}`);
     return parts.join("\n");
@@ -374,13 +413,29 @@ function ScreenShare({ step, ticket, substeps, activeId, setActiveId, setSubstep
       reader.onloadend = () => {
         try {
           const contextText = getActiveContextFromRef();
+
+          // decide whether to request whereToGo: only if not fetched and not already requested
+          const activeSub = (substeps || []).find((s) => String(s.id) === String(curActiveId));
+          const needWhere = activeSub ? (!activeSub.whereFetched && !activeSub.whereRequested) : false;
+
           // include activeIdRef explicitly so backend can ack the correct substep
-          socketRef.current.emit("snapshot", {
+          const payload = {
             image: reader.result,
             ticket_suggestion: contextText,
             active_id: curActiveId,
             timestamp: new Date().toISOString(),
-          });
+          };
+
+          if (needWhere) {
+            payload.request_where = true;
+          }
+
+          socketRef.current.emit("snapshot", payload);
+
+          // optimistically mark whereRequested so we don't send more requests until the server responds
+          if (needWhere) {
+            setSubsteps((prev) => prev.map((s) => (String(s.id) === String(curActiveId) ? { ...s, whereRequested: true } : s)));
+          }
         } catch (e) {
           console.error("Failed to emit snapshot", e);
         }
