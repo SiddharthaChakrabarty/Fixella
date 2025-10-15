@@ -1,3 +1,4 @@
+# app_server.py  (replace your existing large Flask file with this or merge changes)
 from flask import Flask, request, jsonify
 import boto3  # type: ignore
 import bcrypt
@@ -15,26 +16,29 @@ import joblib  # type: ignore
 import tempfile
 import sys
 from sklearn.base import BaseEstimator, TransformerMixin
+import logging
+
 # === try to import the agent function if available ===
 try:
-    # put your agent file (the long script) into the project as `agent_service.py`
-    # and ensure it exposes `suggest_resolution_for_ticket`
     from agents.resolution_steps_agent import suggest_resolution_for_ticket  # optional
-
     AGENT_IMPORT_AVAILABLE = True
 except Exception:
     AGENT_IMPORT_AVAILABLE = False
 
 try:
-    # the new substeps agent (strands + Bedrock)
     from agents.agent_substeps_llm import suggest_substeps_for_resolution_step
-
     AGENT_SUBSTEPS_AVAILABLE = True
 except Exception:
     AGENT_SUBSTEPS_AVAILABLE = False
-    
-from agents.chat_agent import chat_with_agent
 
+# chat agent import (used as fallback if master agent not available)
+try:
+    from agents.chat_agent import chat_with_agent
+    CHAT_AGENT_AVAILABLE = True
+except Exception:
+    CHAT_AGENT_AVAILABLE = False
+
+# KB store imports (unchanged)
 from agents.kb_store import (
     kb_get_status,
     kb_get_tickets,
@@ -47,7 +51,28 @@ from agents.kb_store import (
     kb_search_nodes,
 )
 
-import logging
+# Try to import master_agent and a selection of its tool wrappers (preferred)
+MASTER_AVAILABLE = False
+generate_substeps_tool = None
+suggest_resolution_tool = None
+chat_with_agent_tool = None
+analyze_snapshot_tool = None
+where_to_go_tool = None
+search_similar_tickets_tool = None
+
+try:
+    import agents.master_agent as master_agent_module  # type: ignore
+
+    MASTER_AVAILABLE = True
+    # try to bind known tool wrapper functions if they exist
+    generate_substeps_tool = getattr(master_agent_module, "generate_substeps_tool", None)
+    suggest_resolution_tool = getattr(master_agent_module, "suggest_resolution_tool", None)
+    chat_with_agent_tool = getattr(master_agent_module, "chat_with_agent_tool", None)
+    analyze_snapshot_tool = getattr(master_agent_module, "analyze_snapshot_tool", None)
+    where_to_go_tool = getattr(master_agent_module, "where_to_go_tool", None)
+    search_similar_tickets_tool = getattr(master_agent_module, "search_similar_tickets_tool", None)
+except Exception:
+    MASTER_AVAILABLE = False
 
 app = Flask(__name__)
 CORS(app)
@@ -60,7 +85,6 @@ app.config["DYNAMO_TABLE"] = "FixellaUsers"
 app.config["SAGEMAKER_ENDPOINT"] = "ticket-escalation-endpoint-5"  # replace with your endpoint or set via env/config
 
 app.config["MODEL_S3_URI"] = "s3://fixella-bucket-superhack/models/ticket_escalation_model.joblib"  # optional
-
 
 dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION"])
 table = dynamodb.Table(app.config["DYNAMO_TABLE"])
@@ -134,7 +158,6 @@ def signup():
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/login", methods=["POST"])
 def login():
     try:
@@ -177,7 +200,6 @@ def login():
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/me", methods=["GET"])
 def get_profile():
     token = request.headers.get("Authorization")
@@ -208,7 +230,6 @@ def get_profile():
         return jsonify({"error": "Token expired"}), 401
     except jwt.InvalidTokenError:
         return jsonify({"error": "Invalid token"}), 401
-
 
 @app.route("/tickets", methods=["GET"])
 def get_tickets():
@@ -266,7 +287,6 @@ def get_tickets():
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
 
-
 # === new route ===
 @app.route("/ai/ask_ai", methods=["POST"])
 def ask_ai():
@@ -318,11 +338,38 @@ def ask_ai():
             or "",
         }
 
-        # Option A: call agent function directly (if available/importable)
+        # Option 1: call master_agent suggest_resolution tool if available
+        if MASTER_AVAILABLE and suggest_resolution_tool is not None:
+            try:
+                ticket_json = json.dumps(new_ticket)
+                tool_res = suggest_resolution_tool(ticket_json, top_k=4)
+                if isinstance(tool_res, dict) and tool_res.get("ok"):
+                    return jsonify({"ok": True, "source": "master_agent", "result": tool_res.get("result")}), 200
+                else:
+                    # fallback to using raw result or error if tool returned error
+                    return jsonify({"ok": False, "source": "master_agent", "error": tool_res.get("error", "tool failed")}), 500
+            except Exception as e:
+                # fall through to other methods
+                logger.exception("master_agent suggest_resolution_tool failed: %s", e)
+
+        # Option 2: call in-process agent if available
         if AGENT_IMPORT_AVAILABLE:
-            # NOTE: this will run in-process and requires agent dependencies (boto3, strands, bedrock, AWS creds)
             suggestion = suggest_resolution_for_ticket(new_ticket, top_k=4)
             return jsonify({"ok": True, "source": "import", "result": suggestion}), 200
+
+        # Option 3: master_agent present but tool not registered -> ask master_agent to process request free-form
+        if MASTER_AVAILABLE:
+            try:
+                # we use the master_agent's process_request helper if available
+                process_request = getattr(master_agent_module, "process_request", None)
+                if callable(process_request):
+                    instruction = f"Suggest resolution steps for ticket:\n{json.dumps(new_ticket, default=str)}\nReturn JSON only."
+                    resp = process_request(instruction)
+                    return jsonify({"ok": True, "source": "master_agent.process_request", "result": resp.get("result")}), 200
+            except Exception:
+                logger.exception("master_agent.process_request fallback failed")
+
+        return jsonify({"error": "No agent available to process this request"}), 500
 
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
@@ -330,7 +377,6 @@ def ask_ai():
         return jsonify({"error": "Agent proxy request failed", "details": str(e)}), 502
     except Exception as e:
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
-
 
 @app.route("/ai/substeps", methods=["POST"])
 def substeps():
@@ -354,22 +400,42 @@ def substeps():
         if not step:
             return jsonify({"error": "step (string) is required"}), 400
 
-        if not AGENT_SUBSTEPS_AVAILABLE:
-            return jsonify({"error": "Substeps agent not available on server"}), 500
+        # Prefer master_agent tool
+        if MASTER_AVAILABLE and generate_substeps_tool is not None:
+            try:
+                ctx_json = json.dumps(ticket or {})
+                tool_res = generate_substeps_tool(step, ctx_json, top_k=top_k)
+                if isinstance(tool_res, dict) and tool_res.get("ok"):
+                    return jsonify({"ok": True, "source": "master_agent", "result": tool_res.get("result")}), 200
+                else:
+                    return jsonify({"ok": False, "error": tool_res.get("error", "tool failed")}), 500
+            except Exception as e:
+                logger.exception("master_agent.generate_substeps_tool failed: %s", e)
+                # fallthrough to local agent if present
 
-        # Call the substeps agent (this runs in-process and requires strands/bedrock deps & AWS creds)
-        result = suggest_substeps_for_resolution_step(
-            step, ticket_context=ticket, top_k=top_k
-        )
+        # Fallback to in-process substeps agent
+        if AGENT_SUBSTEPS_AVAILABLE:
+            result = suggest_substeps_for_resolution_step(step, ticket_context=ticket, top_k=top_k)
+            return jsonify({"ok": True, "source": "import", "result": result}), 200
 
-        return jsonify({"ok": True, "result": result}), 200
+        # Fallback: use master_agent.process_request freeform
+        if MASTER_AVAILABLE:
+            try:
+                process_request = getattr(master_agent_module, "process_request", None)
+                if callable(process_request):
+                    instruction = f"Generate UI-level substeps for resolution step: {json.dumps(step)}. Ticket context: {json.dumps(ticket or {})}. Return JSON only."
+                    resp = process_request(instruction)
+                    return jsonify({"ok": True, "source": "master_agent.process_request", "result": resp.get("result")}), 200
+            except Exception:
+                logger.exception("master_agent.process_request failed for substeps")
+
+        return jsonify({"error": "Substeps agent not available on server"}), 500
 
     except ClientError as e:
         return jsonify({"error": str(e)}), 500
     except Exception as e:
-        # include message for debugging in dev; sanitize in production
         return jsonify({"error": "Substeps generation failed", "details": str(e)}), 500
-    
+
 @app.route("/ai/chat", methods=["POST"])
 def chat_route():
     # authenticate
@@ -394,16 +460,42 @@ def chat_route():
         return jsonify({"error": "Missing 'question' in request"}), 400
 
     try:
-        resp = chat_with_agent(conversation=conversation, question=question, ticket_context=ticket_context, top_k=top_k)
-        return jsonify({"result": resp, "error": None}), 200
+        # prefer master_agent chat tool
+        if MASTER_AVAILABLE and chat_with_agent_tool is not None:
+            try:
+                conv_json = json.dumps(conversation or [])
+                ctx_json = json.dumps(ticket_context or {})
+                tool_res = chat_with_agent_tool(conv_json, question, ctx_json, top_k=top_k)
+                if isinstance(tool_res, dict) and tool_res.get("ok"):
+                    return jsonify({"result": tool_res.get("result"), "error": None}), 200
+                else:
+                    return jsonify({"result": None, "error": tool_res.get("error", "tool failed")}), 500
+            except Exception as e:
+                logger.exception("master_agent.chat_with_agent_tool failed: %s", e)
+
+        # fallback to chat_agent if available
+        if CHAT_AGENT_AVAILABLE:
+            resp = chat_with_agent(conversation=conversation, question=question, ticket_context=ticket_context, top_k=top_k)
+            return jsonify({"result": resp, "error": None}), 200
+
+        # final fallback: ask master_agent.process_request freeform
+        if MASTER_AVAILABLE:
+            try:
+                process_request = getattr(master_agent_module, "process_request", None)
+                if callable(process_request):
+                    instruction = f"Conversational request. Transcript: {json.dumps(conversation)}. Question: {question}. Ticket context: {json.dumps(ticket_context or {})}"
+                    resp = process_request(instruction)
+                    return jsonify({"result": resp.get("result"), "error": None}), 200
+            except Exception:
+                logger.exception("master_agent.process_request fallback failed for chat")
+
+        return jsonify({"result": None, "error": "No chat agent available"}), 500
     except Exception as e:
         return jsonify({"result": None, "error": str(e)}), 500
-    
+
+# KB endpoints unchanged (they still use kb_store)
 @app.route("/kg/health", methods=["GET"])
 def kg_health():
-    """
-    Simple health/status for the knowledge graph KB.
-    """
     try:
         status = kb_get_status()
         return jsonify({"ok": True, "status": status}), 200
@@ -413,22 +505,15 @@ def kg_health():
 
 @app.route("/kg/tickets", methods=["GET"])
 def kg_tickets():
-    """
-    Return tickets for the knowledge graph UI.
-    Returns: { "tickets": [ ... ] }
-    """
     try:
         tickets = kb_get_tickets()
         return jsonify({"tickets": tickets}), 200
     except Exception as e:
         logger.exception("kg_tickets error")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/kg/ticket/<ticket_id>", methods=["GET"])
 def kg_ticket(ticket_id):
-    """
-    Return a single ticket by ticketId or displayId.
-    """
     try:
         t = kb_find_ticket(ticket_id)
         if not t:
@@ -437,15 +522,9 @@ def kg_ticket(ticket_id):
     except Exception as e:
         logger.exception("kg_ticket error")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/kg/search", methods=["GET"])
 def kg_search():
-    """
-    Lightweight local search endpoint.
-    Query params:
-    q=<text> (required)
-    top_k=<n> (optional)
-    """
     q = request.args.get("q", "").strip()
     try:
         top_k = int(request.args.get("top_k", "10"))
@@ -459,33 +538,27 @@ def kg_search():
     except Exception as e:
         logger.exception("kg_search error")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/kg/refresh", methods=["POST", "GET"])
 def kg_refresh():
-    """
-    Force reload of KB (S3 or local). Returns reload status with KG metadata.
-    """
     try:
         result = kb_reload()
         return jsonify(result), 200
     except Exception as e:
         logger.exception("kg_refresh error")
         return jsonify({"error": str(e)}), 500
-    
-# Additional helper endpoints for the graph model
+
 @app.route("/kg/graph", methods=["GET"])
 def kg_graph():
-    """Return the full cached knowledge graph (nodes, edges, last_built)."""
     try:
         kg = kb_get_kg()
         return jsonify(kg), 200
     except Exception as e:
         logger.exception("kg_graph error")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/kg/node/<path:node_id>", methods=["GET"])
 def kg_node(node_id):
-    """Return a node and its connected edges."""
     try:
         node = kb_find_node(node_id)
         if not node:
@@ -495,24 +568,23 @@ def kg_node(node_id):
     except Exception as e:
         logger.exception("kg_node error")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/kg/nodes/search", methods=["GET"])
 def kg_nodes_search():
-    """Search nodes by text query. q and optional top_k."""
     q = request.args.get("q", "").strip()
     try:
         top_k = int(request.args.get("top_k", "20"))
     except Exception:
         top_k = 20
-        if not q:
-            return jsonify({"error": "q parameter required"}), 400
+    if not q:
+        return jsonify({"error": "q parameter required"}), 400
     try:
         hits = kb_search_nodes(q, top_k=top_k)
         return jsonify({"query": q, "count": len(hits), "hits": hits}), 200
     except Exception as e:
         logger.exception("kg_nodes_search error")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route("/ml/predict", methods=["POST"])
 def sagemaker_predict():
     """
@@ -939,8 +1011,6 @@ def sagemaker_explain():
         eprint(traceback.format_exc())
         logger.exception("sagemaker_explain error")
         return jsonify({"error": "Explain failed", "details": str(e)}), 500
-
-
 
 if __name__ == "__main__":
     app.run(debug=True)

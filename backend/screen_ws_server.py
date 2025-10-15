@@ -1,10 +1,4 @@
-# ### FILE: backend_server.py
-# NOTE: This is the modified backend_server.py that imports the above module and uses
-# its functions. It closely follows the structure of your original file but removes
-# direct bedrock runtime usage and instead calls the strands agent wrapper.
-
-# (Place this file next to strands_bedrock_agent.py and run as before.)
-
+# backend_server.py  (modified to use master_agent where available)
 import os
 import json
 import base64
@@ -19,11 +13,29 @@ from flask_socketio import SocketIO, emit
 import imghdr
 import io
 
-# import the new strands-based agent functions
-from agents.screen_share_agent import (
-    analyze_snapshot_for_completion,
-    generate_where_to_go_from_snapshot,
-)
+# try to import master agent tools first (preferred)
+MASTER_AVAILABLE = False
+analyze_snapshot_tool = None
+where_to_go_tool = None
+try:
+    import master_agent as master_agent_module  # type: ignore
+    MASTER_AVAILABLE = True
+    analyze_snapshot_tool = getattr(master_agent_module, "analyze_snapshot_tool", None)
+    where_to_go_tool = getattr(master_agent_module, "where_to_go_tool", None)
+except Exception:
+    MASTER_AVAILABLE = False
+
+# fallback: old subagent if available
+try:
+    from agents.screen_share_agent import (
+        analyze_snapshot_for_completion as fallback_analyze_snapshot,
+        generate_where_to_go_from_snapshot as fallback_generate_where_to_go,
+    )
+    FALLBACK_SCREEN_SHARE_AVAILABLE = True
+except Exception:
+    fallback_analyze_snapshot = None
+    fallback_generate_where_to_go = None
+    FALLBACK_SCREEN_SHARE_AVAILABLE = False
 
 # --- App setup ---
 app = Flask(__name__)
@@ -33,7 +45,6 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # --- Paths & env ---
 SNAPSHOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "snapshots"))
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-
 
 @socketio.on("snapshot")
 def handle_snapshot(data):
@@ -81,17 +92,66 @@ def handle_snapshot(data):
 
     # If requested, generate whereToGo and emit it back immediately
     if request_where and active_id is not None:
-        try:
-            where_text = generate_where_to_go_from_snapshot(image_bytes, substep_text, declared_format=mime)
-            emit("where_response", {"substep_id": active_id, "whereToGo": where_text, "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
-        except Exception as e:
-            print("Error generating whereToGo:", e)
+        # prefer master_agent where_to_go_tool if available
+        if MASTER_AVAILABLE and where_to_go_tool is not None:
+            try:
+                # pass data URL so tool can decode; it accepts either data URL or raw base64
+                tool_res = where_to_go_tool(img_data, substep_text)
+                if tool_res.get("ok"):
+                    where_text = tool_res.get("whereToGo")
+                else:
+                    where_text = "Unknown"
+                emit("where_response", {"substep_id": active_id, "whereToGo": where_text, "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
+            except Exception as e:
+                print("Error generating whereToGo via master_agent:", e)
+                # fallback to existing function if available
+                if FALLBACK_SCREEN_SHARE_AVAILABLE:
+                    try:
+                        where_text = fallback_generate_where_to_go(image_bytes, substep_text, declared_format=mime)
+                        emit("where_response", {"substep_id": active_id, "whereToGo": where_text, "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
+                    except Exception as ex:
+                        print("Fallback whereToGo also failed:", ex)
+                else:
+                    emit("where_response", {"substep_id": active_id, "whereToGo": "Unknown", "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
+        elif FALLBACK_SCREEN_SHARE_AVAILABLE:
+            try:
+                where_text = fallback_generate_where_to_go(image_bytes, substep_text, declared_format=mime)
+                emit("where_response", {"substep_id": active_id, "whereToGo": where_text, "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
+            except Exception as e:
+                print("Fallback whereToGo failed:", e)
+                emit("where_response", {"substep_id": active_id, "whereToGo": "Unknown", "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
+        else:
+            emit("where_response", {"substep_id": active_id, "whereToGo": "Unknown", "filepath": filename, "timestamp": datetime.utcnow().isoformat() + "Z"})
 
-    # Analyze with strands-based agent
+    # Analyze with master agent or fallback
     try:
-        result = analyze_snapshot_for_completion(image_bytes, substep_text, declared_format=mime)
-        decision = result.get("decision", "NO")
-        explanation = result.get("explanation", "")
+        if MASTER_AVAILABLE and analyze_snapshot_tool is not None:
+            try:
+                tool_res = analyze_snapshot_tool(img_data, substep_text, declared_format=mime)
+                if tool_res.get("ok"):
+                    res = tool_res.get("result", {})
+                    decision = res.get("decision", "NO")
+                    explanation = res.get("explanation", "")
+                else:
+                    decision = "NO"
+                    explanation = tool_res.get("error", "tool error")
+            except Exception as e:
+                print("Error analyzing snapshot via master_agent:", e)
+                # fallback to original
+                if FALLBACK_SCREEN_SHARE_AVAILABLE:
+                    fb = fallback_analyze_snapshot(image_bytes, substep_text, declared_format=mime)
+                    decision = fb.get("decision", "NO")
+                    explanation = fb.get("explanation", "")
+                else:
+                    decision = "NO"
+                    explanation = f"Analysis failed: {e}"
+        elif FALLBACK_SCREEN_SHARE_AVAILABLE:
+            fb = fallback_analyze_snapshot(image_bytes, substep_text, declared_format=mime)
+            decision = fb.get("decision", "NO")
+            explanation = fb.get("explanation", "")
+        else:
+            decision = "NO"
+            explanation = "No analysis agent available."
         emit_payload = {
             "substep_id": active_id,
             "decision": decision,
@@ -110,11 +170,9 @@ def handle_snapshot(data):
             "timestamp": datetime.utcnow().isoformat() + "Z",
         })
 
-
 @app.route("/")
 def index():
-    return "WebSocket server running (using strands agent)."
-
+    return "WebSocket server running (using master_agent when available)."
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "1") not in ("0", "false", "no")

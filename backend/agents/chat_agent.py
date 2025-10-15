@@ -13,50 +13,35 @@ import os
 import re
 import json
 from typing import Any, Dict, List, Optional
-
-# Attempt imports for strands / Bedrock
-try:
-    from strands import Agent  # type: ignore
-    from strands.models import BedrockModel  # type: ignore
-    STRANDS_AVAILABLE = True
-except Exception as e:
-    Agent = None  # type: ignore
-    BedrockModel = None  # type: ignore
-    STRANDS_AVAILABLE = False
-    _strands_import_error = str(e)
-
-# reuse your existing search_tickets implementation
+from strands import Agent  # type: ignore
+from strands.models import BedrockModel  # type: ignore
 from agents.resolution_steps_agent import search_tickets
 
-# Configuration
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 DEFAULT_TOP_K = int(os.environ.get("CHAT_TOP_K", "5"))
 
-# Create Bedrock-backed model + Agent if available
 bedrock_model = None
 agent = None
-if STRANDS_AVAILABLE:
-    try:
-        bedrock_model = BedrockModel(
+
+
+bedrock_model = BedrockModel(
             model_id=BEDROCK_MODEL_ID,
             temperature=0.2,
             max_tokens=1024,
             region_name=AWS_REGION,
-        )
+)
 
-        SYSTEM_PROMPT = (
+SYSTEM_PROMPT = (
             "You are Fixella AI, an expert IT support assistant. Answer concisely and directly. "
             "When asked for similar tickets, return only the matching tickets (no extra commentary). "
             "When answering conversational questions, be brief and actionable."
-        )
+)
 
-        # register search tool with agent if available (agent may call it when needed)
-        tools = [search_tickets]
-        agent = Agent(model=bedrock_model, tools=tools, system_prompt=SYSTEM_PROMPT)
-    except Exception as e:
-        STRANDS_AVAILABLE = False
-        _strands_init_error = str(e)
+# register search tool with agent if available (agent may call it when needed)
+tools = [search_tickets]
+agent = Agent(model=bedrock_model, tools=tools, system_prompt=SYSTEM_PROMPT)
+
 
 
 def _looks_like_search_request(question: str) -> Optional[str]:
@@ -140,13 +125,6 @@ def chat_with_agent(
                 "search_hits": hits,
             }
         # if search failed, fall through to agent fallback
-
-    # Agent fallback for conversational queries
-    if not STRANDS_AVAILABLE or agent is None:
-        return {
-            "answer": "AI agent not available on server. Check Bedrock/strands configuration.",
-            "error": "agent_unavailable",
-        }
 
     # Build compact transcript and ask agent to respond concisely
     transcript_lines = []

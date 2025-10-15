@@ -195,3 +195,15 @@ tickets = [
 for ticket in tickets:
     table.put_item(Item=ticket)
     print(f"Inserted ticket {ticket['ticketId']}")
+
+
+
+
+
+
+
+
+
+
+
+
