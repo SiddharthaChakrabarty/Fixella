@@ -1,0 +1,14 @@
+# core MCP + Bedrock/AgentCore tooling
+mcp
+bedrock-agentcore-starter-toolkit
+
+# Strands runtime (install via the strands-agents meta-package you specified)
+strands-agents
+
+# AWS / infra clients & search
+boto3
+opensearch-py
+requests-aws4auth
+
+# Optional helpful utilities (keep if you use them)
+python-dotenv

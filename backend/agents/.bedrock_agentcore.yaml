@@ -1,0 +1,41 @@
+default_agent: FixellaAgent
+agents:
+  FixellaAgent:
+    name: FixellaAgent
+    entrypoint: D:/Fixella/agents/mcp_server.py
+    platform: linux/arm64
+    container_runtime: none
+    source_path: D:\Fixella\agents
+    aws:
+      execution_role: arn:aws:iam::058264280347:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-2829c3f219
+      execution_role_auto_create: true
+      account: 058264280347
+      region: us-east-1
+      ecr_repository: 058264280347.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-fixellaagent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: MCP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: FixellaAgent-iRjgDs6JuQ
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:058264280347:runtime/FixellaAgent-iRjgDs6JuQ
+      agent_session_id: 492ed941-1108-4c78-a06a-ce30b4758640
+    codebuild:
+      project_name: bedrock-agentcore-fixellaagent-builder
+      execution_role: arn:aws:iam::058264280347:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-2829c3f219
+      source_bucket: bedrock-agentcore-codebuild-sources-058264280347-us-east-1
+    memory:
+      mode: STM_ONLY
+      memory_id: FixellaAgent_mem-Tgky95AEvw
+      memory_arn: arn:aws:bedrock-agentcore:us-east-1:058264280347:memory/FixellaAgent_mem-Tgky95AEvw
+      memory_name: FixellaAgent_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: true
+      was_created_by_toolkit: false
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
