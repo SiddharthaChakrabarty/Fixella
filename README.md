@@ -4,7 +4,7 @@
 
 ---
 
-## 📚 Index
+## Index
 
 - [Team](#team)
 - [Hackathon Theme / Challenge Addressed](#hackathon-theme--challenge-addressed)
