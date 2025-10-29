@@ -110,7 +110,7 @@ Fixella addresses these by combining telemetry collection, vector embeddings, kn
 ---
 
 ## Fixella AI Agent Workflow
-<img width="1052" height="588" alt="image" src="https://github.com/user-attachments/assets/f8a90dd8-a15b-4b60-b9b3-543733f1244b" />
+<img width="7244" height="3216" alt="image" src="https://github.com/user-attachments/assets/7fba4f77-c671-4095-b9bc-5ab27543681d" />
 
 The Fixella AI Agent operates using a multi-agent architecture built on Strands and Amazon Bedrock (AgentCore).
 Each sub-agent specializes in a specific task — from resolving tickets to guiding technicians in real time.
@@ -125,7 +125,7 @@ Each sub-agent specializes in a specific task — from resolving tickets to guid
 ---
 
 ## Knowledge Graph
-<img width="1051" height="590" alt="image" src="https://github.com/user-attachments/assets/47b13730-9fd9-40a6-b910-50ee2932f556" />
+<img width="3264" height="1524" alt="image" src="https://github.com/user-attachments/assets/11e58bba-ef09-4f7a-a029-b8825929b6fa" />
 
 Fixella builds a Knowledge Graph to represent the relationships between tickets, assets, categories, clients, and resolutions.
 This structure allows technicians and AI agents to query, reason, and navigate across interconnected support data.
@@ -161,13 +161,27 @@ This structure allows technicians and AI agents to query, reason, and navigate a
 ---
 
 ## How Fixella Solves Real World Problems?
-<img width="1042" height="585" alt="image" src="https://github.com/user-attachments/assets/dd1de553-23ad-4164-97c7-7f90f2dd786e" />
-<img width="1051" height="587" alt="image" src="https://github.com/user-attachments/assets/2f56a9ec-382f-40c8-8ee7-685b0402330c" />
+
+### **Scenario 1**: A & B are clients of Company M which have the same OS. Client B’s printer issue is solved.
+Fixella’s AI agent analyses Client B’s ticket and suggests resolution steps according to Client A’s custom config by matching the embeddings of tickets of Client A & B. 
+<img width="2488" height="1204" alt="image" src="https://github.com/user-attachments/assets/feb10b39-f31b-45de-8cf2-5966bfb15201" />
+
+### **Scenario 2**: A is a client of Company M which has previously reported 200+ issue tickets. A new issue ticket is raised by Client A.
+Fixella’s AI agent analyses Client A’s past ticket embeddings with the recent ticket and provides the best 3 solutions using the knowledge graph.
+<img width="2936" height="1100" alt="image" src="https://github.com/user-attachments/assets/d8517f2a-53c2-4190-aff0-d056914a1f60" />
+
+### **Scenario 3**: An issue ticket is received by L1 which is escalated 70% of the times previously.
+Previously escalated tickets are analysed by Fixella’s AI agent and it provides a clear and detailed resolution steps to L1 to avoid escalation. 
+<img width="2764" height="1096" alt="image" src="https://github.com/user-attachments/assets/c1269419-7534-4305-aa2f-adad9eb3eeb6" />
+
+### **Scenario 4**: An issue ticket is received which has never been reported by anybody yet.
+The metadata extracted by Fixella’s Auto Ticket Context Collector is sent to Fixella’s AI Agent which analyses the issue and provides proper resolution steps.
+<img width="2612" height="1100" alt="image" src="https://github.com/user-attachments/assets/c589969f-52b4-439f-aee3-c50261a748b8" />
 
 ---
 
 ## Architecture Diagram 
-<img width="1050" height="588" alt="image" src="https://github.com/user-attachments/assets/5e4d01e7-a1a4-41c7-91d4-daffb72917aa" />
+<img width="7768" height="3888" alt="image" src="https://github.com/user-attachments/assets/c9232b08-4323-4476-9616-f4bb961e7615" />
 
 | **Component**            | **Description**                                                                                                                                               |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
