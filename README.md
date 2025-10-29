@@ -113,6 +113,7 @@ This structure allows technicians and AI agents to query, reason, and navigate a
 
 ## Architecture Diagram 
 <img width="1050" height="588" alt="image" src="https://github.com/user-attachments/assets/5e4d01e7-a1a4-41c7-91d4-daffb72917aa" />
+
 | **Component**            | **Description**                                                                                                                                               |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Input**                | SuperOps webhook triggers data collection when a ticket is created. Metadata and telemetry are collected and stored in **AWS S3**.                            |
