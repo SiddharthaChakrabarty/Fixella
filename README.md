@@ -2,7 +2,26 @@
 
 **AI Ticket Intelligence for MSPs & IT Teams**
 
-----
+---
+
+## 📚 Index
+
+- [Team](#team)
+- [Hackathon Theme / Challenge Addressed](#hackathon-theme--challenge-addressed)
+- [Demo Video](#demo-video)
+- [Pitch Deck](#pitch-deck)
+- [How to run it](#how-to-run-it)
+- [Short Description](#short-description)
+- [Problem statement](#problem-statement)
+- [Our Solution](#our-solution)
+- [Fixella AI Agent Workflow](#fixella-ai-agent-workflow)
+- [Knowledge Graph](#knowledge-graph)
+- [How Fixella Solves Real World Problems?](#how-fixella-solves-real-world-problems)
+- [Architecture Diagram](#architecture-diagram)
+- [Tech stack](#tech-stack)
+- [Estimated Implementation Cost](#estimated-implementation-cost)
+
+---
 
 ## Team
 - **Team Name**: EspressoOps
@@ -12,12 +31,47 @@
  
 <img width="1047" height="588" alt="image" src="https://github.com/user-attachments/assets/68a3bc9b-02cb-430e-a558-a37ee84d61b5" />
     
-----
+---
 
 ## Hackathon Theme / Challenge Addressed  
 **Service efficiency improvement for MSPs and IT Teams**  
 
-----
+---
+
+## Demo Video
+
+---
+
+## Pitch Deck
+
+---
+
+## How to run it
+
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/SiddharthaChakrabarty/Fixella.git
+   cd fixella
+   ```
+
+2. Backend:
+   ```bash
+   cd backend
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   python app.py
+   python screen_ws_server.py
+   ```
+     
+3. Frontend:
+    ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+---
 
 ## Short Description  
 <img width="1047" height="588" alt="image" src="https://github.com/user-attachments/assets/aac1a2ba-5481-4701-9d30-75a918681853" />
@@ -53,6 +107,7 @@ Fixella addresses these by combining telemetry collection, vector embeddings, kn
 | **Knowledge Graph & Chat**        | Builds a graph (nodes/edges) of tickets, categories, steps, and assets — enables “chat with the knowledge graph” to query relationships and surface similar tickets.                                    |
 | **Escalation Avoidance Engine**   | Random forest model trained on historical tickets (deployed on SageMaker); outputs and explains escalation probability using SHAP.                                                                      |
 | **Fixella AssistView**            | When a technician enables screen-share, AssistView provides sub-step level instructions for a resolution.                                                                                               |
+---
 
 ## Fixella AI Agent Workflow
 <img width="1052" height="588" alt="image" src="https://github.com/user-attachments/assets/f8a90dd8-a15b-4b60-b9b3-543733f1244b" />
@@ -106,8 +161,8 @@ This structure allows technicians and AI agents to query, reason, and navigate a
 ---
 
 ## How Fixella Solves Real World Problems?
-<img width="1050" height="587" alt="image" src="https://github.com/user-attachments/assets/efa59803-1a34-406c-8d7c-90b79ab630fe" />
-<img width="1047" height="590" alt="image" src="https://github.com/user-attachments/assets/81c96f3c-efc9-484a-8eb4-f7e9064f9481" />
+<img width="1042" height="585" alt="image" src="https://github.com/user-attachments/assets/dd1de553-23ad-4164-97c7-7f90f2dd786e" />
+<img width="1051" height="587" alt="image" src="https://github.com/user-attachments/assets/2f56a9ec-382f-40c8-8ee7-685b0402330c" />
 
 ---
 
@@ -136,6 +191,13 @@ This structure allows technicians and AI agents to query, reason, and navigate a
 | **Agentic AI**         | Strands Agents, Amazon Bedrock, Amazon AgentCore |
 | **Machine Learning**   | Amazon SageMaker                                   |
 
+---
+
+## Comparison with other platforms
+<img width="1048" height="587" alt="image" src="https://github.com/user-attachments/assets/393ad478-54ff-4c60-b140-f1b3af9f6131" />
+
+---
+
 ## Estimated Implementation Cost
 <img width="1048" height="587" alt="image" src="https://github.com/user-attachments/assets/33047bae-a1ac-4d26-b984-d9556e061ccc" />
 
@@ -148,11 +210,7 @@ This structure allows technicians and AI agents to query, reason, and navigate a
   
 Total estimate: $1,690 – $12,080 / month
 
-
-
-
-
-
+---
 
 
 
