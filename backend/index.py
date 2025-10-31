@@ -37,16 +37,22 @@ from strands.models import BedrockModel
 # -----------------------
 OPENSEARCH_HOST = os.environ.get(
     "OPENSEARCH_HOST",
-    "arn:aws:aoss:us-east-1:058264280347:collection/e67mqwgyf9a2476feaui"
+    "arn:aws:aoss:us-east-2:521818209921:collection/v5imukfrs3r1k6oi37dk"
 )
 OPENSEARCH_PORT = int(os.environ.get("OPENSEARCH_PORT", 443))
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "bedrock-knowledge-base-default-index")
-AWS_REGION = os.environ.get("AWS_REGION", None)  # may be inferred from ARN if not provided
-OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", None)
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")  # may be inferred from ARN if not provided
+OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", "aoss")
+
+# Foundation model id you would like to use (fallback)
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
 
+# OPTIONAL: If provided, treat this as the inference-profile ARN/ID to use when invoking
+# models that require an inference profile (recommended for Nova family models).
+BEDROCK_INFERENCE_PROFILE_ARN = "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0"
+
 # Controls
-USE_VECTOR_SEARCH = os.environ.get("USE_VECTOR_SEARCH", "").strip().lower()
+USE_VECTOR_SEARCH = "true"
 DEFAULT_VECTOR_ENABLED = bool(os.environ.get("BEDROCK_EMBEDDING_MODEL", os.environ.get("BEDROCK_MODEL_ID")))
 if USE_VECTOR_SEARCH in ("1", "true", "yes"):
     USE_VECTOR_SEARCH_FLAG = True
@@ -60,7 +66,7 @@ BEDROCK_EMBEDDING_MODEL = os.environ.get("BEDROCK_EMBEDDING_MODEL", "amazon.tita
 # Limits
 EMBEDDING_MAX_CHARS = int(os.environ.get("EMBEDDING_MAX_CHARS", 2000))
 RETRIEVAL_SUMMARY_STEPS = int(os.environ.get("RETRIEVAL_SUMMARY_STEPS", 3))
-RETRIEVAL_SUMMARY_MAX_TOKENS = int(os.environ.get("RETRIEVAL_SUMMARY_MAX_TOKENS", 1500))  # heuristic hard limit
+RETRIEVAL_SUMMARY_MAX_TOKENS = int(os.environ.get("RETRIEVAL_SUMMARY_MAX_TOKENS", 15000))  # heuristic hard limit
 
 # Optional tuning
 OPENSEARCH_SERVERLESS_ENV = os.environ.get("OPENSEARCH_SERVERLESS", "").strip().lower()
@@ -131,7 +137,7 @@ elif OPENSEARCH_SERVERLESS_ENV in ("0", "false", "no"):
 else:
     USE_OPENSEARCH_SERVERLESS = (OPENSEARCH_SERVICE == "aoss") or (".aoss." in (OPENSEARCH_HOST or "").lower()) or is_arn(os.environ.get("OPENSEARCH_HOST", ""))
 
-print(f"[info] OpenSearch host={OPENSEARCH_HOST} service={OPENSEARCH_SERVICE} region={AWS_REGION} serverless={USE_OPENSEARCH_SERVERLESS} vector_search={USE_VECTOR_SEARCH_FLAG}")
+print(f"[info] OpenSearch host={OPENSEARCH_HOST} service={OPENSEARCH_SERVICE} region={AWS_REGION} serverless={USE_OPENSEARCH_SERVERLESS} vector_search={USE_VECTOR_SEARCH_FLAG} inference_profile={BEDROCK_INFERENCE_PROFILE_ARN or 'none'}")
 
 def create_opensearch_client(region: str = AWS_REGION,
                              service: Optional[str] = OPENSEARCH_SERVICE,
@@ -173,6 +179,10 @@ def get_bedrock_embedding(text: str,
                           max_input_chars: int = EMBEDDING_MAX_CHARS,
                           retry_attempts: int = 3,
                           backoff: float = 1.0) -> Optional[List[float]]:
+    """
+    Returns embedding vector or None. If Bedrock raises a ValidationException due to on-demand
+    invocation limitations, we attempt one retry using the configured inference profile ARN (if present).
+    """
     if not model_id:
         return None
     if not text:
@@ -195,7 +205,7 @@ def get_bedrock_embedding(text: str,
     last_err = None
     for attempt in range(1, retry_attempts + 1):
         try:
-            resp = client.invoke_model(modelId=model_id, body=body)
+            resp = client.invoke_model(modelId=model_id, body=body, contentType="application/json", accept="application/json")
             b = resp.get("body")
             if hasattr(b, "read"):
                 body_text = b.read().decode("utf-8")
@@ -231,10 +241,52 @@ def get_bedrock_embedding(text: str,
         except botocore.exceptions.ClientError as e:
             last_err = e
             code = getattr(e, "response", {}).get("Error", {}).get("Code", "") or ""
-            if code.lower().startswith("validation"):
-                print(f"[warn] Bedrock validation error: {e}. payload len={len(body)}")
-                _embedding_cache[key] = None
-                return None
+            # If it's a validation error and we have an inference profile, retry once with it
+            if code.lower().startswith("validation") and BEDROCK_INFERENCE_PROFILE_ARN and model_id != BEDROCK_INFERENCE_PROFILE_ARN:
+                try:
+                    print(f"[info] ValidationException calling embedding model '{model_id}', retrying with inference profile '{BEDROCK_INFERENCE_PROFILE_ARN}'")
+                    resp = client.invoke_model(modelId=BEDROCK_INFERENCE_PROFILE_ARN, body=body, contentType="application/json", accept="application/json")
+                    b = resp.get("body")
+                    if hasattr(b, "read"):
+                        body_text = b.read().decode("utf-8")
+                    else:
+                        body_text = b
+                    parsed = None
+                    try:
+                        parsed = json.loads(body_text)
+                    except Exception:
+                        parsed = body_text
+
+                    if isinstance(parsed, dict):
+                        if "embedding" in parsed and isinstance(parsed["embedding"], list):
+                            vec = [float(x) for x in parsed["embedding"]]
+                            _embedding_cache[key] = tuple(vec)
+                            return vec
+                        if "embeddings" in parsed and isinstance(parsed["embeddings"], list) and parsed["embeddings"]:
+                            vec = [float(x) for x in parsed["embeddings"][0]]
+                            _embedding_cache[key] = tuple(vec)
+                            return vec
+                        if "results" in parsed and parsed["results"]:
+                            r0 = parsed["results"][0]
+                            if isinstance(r0, dict) and "embedding" in r0:
+                                vec = [float(x) for x in r0["embedding"]]
+                                _embedding_cache[key] = tuple(vec)
+                                return vec
+                    if isinstance(parsed, list) and parsed and isinstance(parsed[0], list):
+                        vec = [float(x) for x in parsed[0]]
+                        _embedding_cache[key] = tuple(vec)
+                        return vec
+                except Exception as e2:
+                    last_err = e2
+                    print(f"[warn] retry with inference profile failed: {e2}")
+                    _embedding_cache[key] = None
+                    return None
+            else:
+                # original behavior: cache None for validation, but we try to be resilient
+                if code.lower().startswith("validation"):
+                    print(f"[warn] Bedrock validation error: {e}. payload len={len(body)}")
+                    _embedding_cache[key] = None
+                    return None
         except (botocore.exceptions.EndpointConnectionError,
                 botocore.exceptions.ReadTimeoutError,
                 botocore.exceptions.SSLError,
@@ -561,8 +613,12 @@ def synthesize_steps_from_retrievals(retrievals: List[Dict[str, Any]], max_steps
 # -----------------------
 # Create Bedrock model and agent with improved system prompt (few-shot + context slot)
 # -----------------------
+# If an inference profile is provided, we prefer to supply it as the model identifier so
+# Bedrock will route to the correct underlying foundation model (avoids ValidationException).
+model_identifier = "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0"
+
 bedrock_model = BedrockModel(
-    model_id=BEDROCK_MODEL_ID,
+    model_id=model_identifier,   # use inference-profile ARN/ID when present; otherwise foundation model id
     temperature=0.0,    # deterministic
     max_tokens=512,
     region_name=AWS_REGION
@@ -654,7 +710,7 @@ def suggest_resolution_for_ticket(new_ticket: Dict[str, Any], top_k: int = 3) ->
 if __name__ == "__main__":
     new_ticket_example = {
         "displayId": "NEW-001",
-        "subject": "Can't access company email from laptop",
+        "subject": "Mouse issues",
         "requester": {"name": "Jim Halpert"},
         "subcategory": "Access",
         "priority": "High",
