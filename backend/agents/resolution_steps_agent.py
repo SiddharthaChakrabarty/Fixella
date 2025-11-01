@@ -22,15 +22,15 @@ from strands.models import BedrockModel  # type: ignore
 
 OPENSEARCH_HOST = os.environ.get(
     "OPENSEARCH_HOST",
-    "arn:aws:aoss:us-east-1:058264280347:collection/e67mqwgyf9a2476feaui",
+    "arn:aws:aoss:us-east-2:521818209921:collection/v5imukfrs3r1k6oi37dk",
 )
 OPENSEARCH_PORT = int(os.environ.get("OPENSEARCH_PORT", 443))
 OPENSEARCH_INDEX = os.environ.get(
     "OPENSEARCH_INDEX", "bedrock-knowledge-base-default-index"
 )
-AWS_REGION = "us-east-1"
-OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", None)
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
+AWS_REGION = "us-east-2"
+OPENSEARCH_SERVICE = os.environ.get("OPENSEARCH_SERVICE", "aoss")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0")
 OPENSEARCH_SERVERLESS_ENV = os.environ.get("OPENSEARCH_SERVERLESS", "").strip().lower()
 # -----------------------
 

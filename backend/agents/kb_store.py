@@ -17,7 +17,7 @@ except Exception:
 # configuration (adjust if needed or override with env vars)
 S3_BUCKET = os.environ.get("S3_BUCKET", "")  # set to your bucket or leave empty to disable S3
 S3_KEY = os.environ.get("S3_KEY", "it_tickets_kb.json")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")
 LOCAL_FALLBACK = os.path.abspath(os.environ.get("LOCAL_KB_PATH", os.path.join(os.path.dirname(__file__), "..", "it_tickets_kb.json")))
 
 _TICKETS_LOCK = threading.Lock()

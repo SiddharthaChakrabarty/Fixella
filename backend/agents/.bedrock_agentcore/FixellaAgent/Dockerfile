@@ -7,10 +7,8 @@ ENV UV_SYSTEM_PYTHON=1 \
     UV_NO_PROGRESS=1 \
     PYTHONUNBUFFERED=1 \
     DOCKER_CONTAINER=1 \
-    AWS_REGION=us-east-1 \
-    AWS_DEFAULT_REGION=us-east-1 \
-    BEDROCK_AGENTCORE_MEMORY_ID=FixellaAgent_mem-Tgky95AEvw \
-    BEDROCK_AGENTCORE_MEMORY_NAME=FixellaAgent_mem
+    AWS_REGION=us-east-2 \
+    AWS_DEFAULT_REGION=us-east-2
 
 
 

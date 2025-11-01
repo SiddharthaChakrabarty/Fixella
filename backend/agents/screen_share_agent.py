@@ -30,8 +30,8 @@ from strands import Agent  # type: ignore
 from strands.models import BedrockModel  # type: ignore
 
 # ----------------- Configuration -----------------
-BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-1")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
+BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-2")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0")
 MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "256"))
 TEMPERATURE = float(os.environ.get("BEDROCK_TEMPERATURE", "0.0"))
 TOP_P = float(os.environ.get("BEDROCK_TOP_P", "0.1"))

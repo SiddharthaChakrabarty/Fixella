@@ -4,13 +4,13 @@ from sagemaker.sklearn.model import SKLearnModel
 
 # ---------- CONFIG ----------
 sagemaker_session = sagemaker.Session()
-role = "arn:aws:iam::058264280347:role/service-role/AmazonSageMaker-ExecutionRole-20251013T193270"  # replace when needed
+role = "arn:aws:iam::521818209921:role/service-role/AmazonSageMaker-ExecutionRole-20251031T164778"  # replace when needed
 
 # The model artifact you uploaded to S3.
 # Option A: a model.tar.gz containing model.joblib (typical SageMaker artifact)
-MODEL_TAR_S3 = "s3://fixella-bucket-superhack/models/ticket_escalation_model.tar.gz"
+MODEL_TAR_S3 = "s3://fixella-ai-bucket/models/ticket_escalation_model.tar.gz"
 # Option B: a single joblib on S3 (the inference loader supports downloading via MODEL_S3_URI)
-MODEL_JOBLIB_S3 = "s3://fixella-bucket-superhack/models/ticket_escalation_model.joblib"
+MODEL_JOBLIB_S3 = "s3://fixella-ai-bucket/models/ticket_escalation_model.joblib"
 
 ENTRY_POINT = "inference.py"   # inference file shown above
 FRAMEWORK_VERSION = "1.2-1"    # IMPORTANT: use scikit-learn 1.2 container to match saved pipeline

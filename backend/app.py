@@ -80,11 +80,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app.config["JWT_SECRET"] = "hello123"
-app.config["AWS_REGION"] = "us-east-1"
+app.config["AWS_REGION"] = "us-east-2"
 app.config["DYNAMO_TABLE"] = "FixellaUsers"
-app.config["SAGEMAKER_ENDPOINT"] = "ticket-escalation-endpoint-5"  # replace with your endpoint or set via env/config
+app.config["SAGEMAKER_ENDPOINT"] = "ticket-escalation-endpoint-4"  # replace with your endpoint or set via env/config
 
-app.config["MODEL_S3_URI"] = "s3://fixella-bucket-superhack/models/ticket_escalation_model.joblib"  # optional
+app.config["MODEL_S3_URI"] = "s3://fixella-ai-bucket/models/ticket_escalation_model.joblib"  # optional
 
 dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION"])
 table = dynamodb.Table(app.config["DYNAMO_TABLE"])

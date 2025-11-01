@@ -17,8 +17,8 @@ from strands import Agent  # type: ignore
 from strands.models import BedrockModel  # type: ignore
 from agents.resolution_steps_agent import search_tickets
 
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")
 DEFAULT_TOP_K = int(os.environ.get("CHAT_TOP_K", "5"))
 
 bedrock_model = None

@@ -31,8 +31,8 @@ import chat_agent as sub_chat
 import kb_store as sub_kb
 import resolution_steps_agent as sub_resolution
 import screen_share_agent as sub_multimodal
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")
 DEFAULT_MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "1024"))
 DEFAULT_TEMPERATURE = float(os.environ.get("BEDROCK_TEMPERATURE", "0.0"))
 

@@ -1,7 +1,7 @@
 import boto3  # type: ignore
 from datetime import datetime
 
-dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+dynamodb = boto3.resource("dynamodb", region_name="us-east-2")
 table = dynamodb.Table("FixellaTickets")
 
 tickets = [
@@ -16,10 +16,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Dwight Schrute"},
         "technician": {
-            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
             "name": "Sneha Jain",
         },
-        "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+        "technician_userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
         "status": "Open",
         "priority": "High",
         "impact": "Medium",
@@ -39,10 +39,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Dwight Schrute"},
         "technician": {
-            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
             "name": "Siddhartha Chakrabarty",
         },
-        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+        "technician_userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
         "status": "Open",
         "priority": "Critical",
         "impact": "High",
@@ -62,10 +62,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Dwight Schrute"},
         "technician": {
-            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
             "name": "Sneha Jain",
         },
-        "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+        "technician_userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
         "status": "Open",
         "priority": "Medium",
         "impact": "Medium",
@@ -86,10 +86,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Jim Halpert"},
         "technician": {
-            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
             "name": "Siddhartha Chakrabarty",
         },
-        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+        "technician_userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
         "status": "Open",
         "priority": "High",
         "impact": "Medium",
@@ -109,10 +109,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Pam Beesly"},
         "technician": {
-            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
             "name": "Sneha Jain",
         },
-        "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+        "technician_userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
         "status": "Open",
         "priority": "Critical",
         "impact": "High",
@@ -132,10 +132,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Stanley Hudson"},
         "technician": {
-            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
             "name": "Siddhartha Chakrabarty",
         },
-        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+        "technician_userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
         "status": "Open",
         "priority": "Medium",
         "impact": "Medium",
@@ -155,10 +155,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Kevin Malone"},
         "technician": {
-            "userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+            "userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
             "name": "Siddhartha Chakrabarty",
         },
-        "technician_userId": "39f16300-9e74-4dc0-b129-1d610998a491",
+        "technician_userId": "7be30309-e1c0-4dc6-b7ff-c39fa965383b",
         "status": "Open",
         "priority": "High",
         "impact": "Medium",
@@ -178,10 +178,10 @@ tickets = [
         "site": {"id": "6028532731314192384", "name": "Scranton HQ"},
         "requester": {"userId": "6049390062889756912", "name": "Angela Martin"},
         "technician": {
-            "userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+            "userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
             "name": "Sneha Jain",
         },
-        "technician_userId": "7076251b-17da-4881-9cfb-98c35af12df0",
+        "technician_userId": "a6e8a692-d2b2-4343-9b01-719578c782c7",
         "status": "Open",
         "priority": "High",
         "impact": "High",

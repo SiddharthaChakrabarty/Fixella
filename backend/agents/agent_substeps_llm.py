@@ -53,8 +53,8 @@ except Exception:
     SEARCH_TOOL_AVAILABLE = False
 
 # Configuration via env vars (defaults provided)
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "arn:aws:bedrock:us-east-2:521818209921:inference-profile/us.amazon.nova-lite-v1:0")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")
 DEFAULT_TOP_K = int(os.environ.get("SUBSTEPS_TOP_K", "5"))
 
 # create Bedrock-backed model for strands
