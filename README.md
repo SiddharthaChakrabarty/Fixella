@@ -38,11 +38,13 @@
 
 ---
 
-## Demo Video
+## Demo Video  
+[Watch the Demo Video](https://youtu.be/qcbrlb2Ydsk)
 
 ---
 
-## Pitch Deck
+## Pitch Deck  
+[View the Pitch Deck (PPT)](https://docs.google.com/presentation/d/131ZztDaf5MIo26J5F1Du0yhTA5OaMt3vXSPh6TFk-Fg/edit?usp=sharing)  
 
 ---
 
