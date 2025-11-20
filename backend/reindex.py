@@ -30,7 +30,7 @@ from tqdm import tqdm
 # Configuration from env
 # -------------------------
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")
-OPENSEARCH_HOST = os.environ.get("OPENSEARCH_HOST", "v5imukfrs3r1k6oi37dk.us-east-2.aoss.amazonaws.com")
+OPENSEARCH_HOST = os.environ.get("OPENSEARCH_HOST", "cb0dnq34dxyx8c7qwq14.us-east-2.aoss.amazonaws.com")
 OPENSEARCH_PORT = int(os.environ.get("OPENSEARCH_PORT", 443))
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "bedrock-knowledge-base-default-index")
 S3_BUCKET = os.environ.get("S3_BUCKET", "fixella-ai-bucket")

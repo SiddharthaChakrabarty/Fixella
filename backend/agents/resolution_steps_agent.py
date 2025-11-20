@@ -22,7 +22,7 @@ from strands.models import BedrockModel  # type: ignore
 
 OPENSEARCH_HOST = os.environ.get(
     "OPENSEARCH_HOST",
-    "arn:aws:aoss:us-east-2:521818209921:collection/v5imukfrs3r1k6oi37dk",
+    "arn:aws:aoss:us-east-2:521818209921:collection/cb0dnq34dxyx8c7qwq14",
 )
 OPENSEARCH_PORT = int(os.environ.get("OPENSEARCH_PORT", 443))
 OPENSEARCH_INDEX = os.environ.get(
